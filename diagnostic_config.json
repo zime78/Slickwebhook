@@ -1,0 +1,32 @@
+{
+  "test_type": "slack_integration_check",
+  "slack_channel": "D07BRDPJCGH",
+  "agent": "Slack/Jira Issue Flow Assistant",
+  "workspace_id": "9014928476",
+  "checks": [
+    {
+      "id": 1,
+      "name": "slack_bot_invited",
+      "description": "Check if ClickUp bot is invited to the target Slack channel",
+      "expected": "true"
+    },
+    {
+      "id": 2,
+      "name": "slack_permission_scope",
+      "description": "Check if ClickUp app has message.read and channel:history scopes",
+      "expected": "granted"
+    },
+    {
+      "id": 3,
+      "name": "agent_chat_automation",
+      "description": "Check if agent automation trigger for this channel exists",
+      "expected": "active"
+    },
+    {
+      "id": 4,
+      "name": "slack_webhook_reachability",
+      "description": "Check if Slack webhook messages can reach ClickUp Agent endpoint",
+      "expected": "reachable"
+    }
+  ]
+}

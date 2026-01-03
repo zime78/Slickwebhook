@@ -1,0 +1,16 @@
+{
+    "channel": "D07BRDPJCGH",
+    "username": "Slack/Jira Bot",
+    "text": "[테스트] 앱 로그인 실패 관련 이슈 감지",
+    "attachments": [
+        {
+            "fallback": "Jira Issue: ITSM-3277",
+            "text": "관련 Jira 링크: https://kakaovx.atlassian.net/browse/ITSM-3277",
+            "color": "#36a64f"
+        }
+    ],
+    "metadata": {
+        "agent_target": "Slack/Jira Issue Flow Assistant",
+        "clickup_folder": "https://app.clickup.com/9014928476/v/o/f/90147454316"
+    }
+}

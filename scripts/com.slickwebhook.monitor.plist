@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 서비스 식별자 -->
+    <key>Label</key>
+    <string>com.slickwebhook.monitor</string>
+
+    <!-- 실행 파일 경로 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/slack-monitor</string>
+    </array>
+
+    <!-- 환경변수 (실제 값으로 수정 필요) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SLACK_BOT_TOKEN</key>
+        <string>xoxb-your-bot-token</string>
+        <key>SLACK_CHANNEL_ID</key>
+        <string>C07AFHKESVC</string>
+        <key>POLL_INTERVAL</key>
+        <string>10s</string>
+        <key>CLICKUP_API_TOKEN</key>
+        <string>pk_your_token</string>
+        <key>CLICKUP_LIST_ID</key>
+        <string>901413896178</string>
+        <key>HISTORY_MAX_SIZE</key>
+        <string>100</string>
+    </dict>
+
+    <!-- 로그인 시 자동 시작 -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- 종료 시 자동 재시작 -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- 로그 파일 -->
+    <key>StandardOutPath</key>
+    <string>/Users/REPLACE_WITH_USERNAME/.slickwebhook/monitor.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/REPLACE_WITH_USERNAME/.slickwebhook/monitor.error.log</string>
+
+    <!-- 작업 디렉토리 -->
+    <key>WorkingDirectory</key>
+    <string>/Users/REPLACE_WITH_USERNAME/.slickwebhook</string>
+</dict>
+</plist>

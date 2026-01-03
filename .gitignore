@@ -1,0 +1,19 @@
+# 환경변수 파일 (토큰 보호)
+.env
+config.ini
+
+# Go 빌드 파일
+slack-monitor
+build/
+
+# 히스토리 파일
+history.json
+
+# Postman 환경 (토큰 포함)
+postman/*_environment.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store

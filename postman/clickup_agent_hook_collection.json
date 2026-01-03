@@ -1,0 +1,72 @@
+{
+    "info": {
+        "name": "ClickUp Agent Hook 테스트",
+        "description": "Slack 스타일 페이로드를 ClickUp Agent로 전송하는 테스트 컬렉션",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "POST - Agent Hook 전송",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{CLICKUP_API_TOKEN}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"channel\": \"{{SLACK_CHANNEL_ID}}\",\n  \"username\": \"Slack/Jira Bot\",\n  \"text\": \"[테스트] 앱 로그인 실패 관련 이슈 감지\",\n  \"attachments\": [\n    {\n      \"fallback\": \"Jira Issue: ITSM-3277\",\n      \"text\": \"관련 Jira 링크: https://kakaovx.atlassian.net/browse/ITSM-3277\",\n      \"color\": \"#36a64f\"\n    }\n  ],\n  \"metadata\": {\n    \"agent_target\": \"{{AGENT_TARGET}}\",\n    \"clickup_folder\": \"{{CLICKUP_FOLDER_URL}}\"\n  }\n}"
+                },
+                "url": {
+                    "raw": "{{CLICKUP_BASE_URL}}/agent/hook",
+                    "host": [
+                        "{{CLICKUP_BASE_URL}}"
+                    ],
+                    "path": [
+                        "agent",
+                        "hook"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "POST - Agent Reply 전송",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{CLICKUP_API_TOKEN}}"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"message\": \"이것은 Agent에 직접 전달하는 테스트 메시지입니다.\"\n}"
+                },
+                "url": {
+                    "raw": "{{CLICKUP_BASE_URL}}/agent/{{AGENT_ID}}/reply",
+                    "host": [
+                        "{{CLICKUP_BASE_URL}}"
+                    ],
+                    "path": [
+                        "agent",
+                        "{{AGENT_ID}}",
+                        "reply"
+                    ]
+                }
+            },
+            "response": []
+        }
+    ]
+}
