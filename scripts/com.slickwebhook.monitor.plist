@@ -18,7 +18,7 @@
         <key>SLACK_BOT_TOKEN</key>
         <string>xoxb-your-bot-token</string>
         <key>SLACK_CHANNEL_ID</key>
-        <string>C07AFHKESVC</string>
+        <string>C0A5ZTLNWA3</string>
         <key>POLL_INTERVAL</key>
         <string>10s</string>
         <key>CLICKUP_API_TOKEN</key>

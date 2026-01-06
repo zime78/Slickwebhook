@@ -27,7 +27,7 @@ echo ""
 read -r -d '' PAYLOAD <<-EOM
 {
   "name": "[Shell Test Trigger] Slack/Jira Agent Automation - $NOW",
-  "description": "이 태스크는 Shell 스크립트 테스트용 자동화 트리거입니다.\\n\\nSlack 링크: https://slack.com/app_redirect?channel=D07BRDPJCGH\\nJira 링크: https://kakaovx.atlassian.net/browse/ITSM-9999\\n\\n이 태스크가 생성되면 [$AGENT_NAME] 가 자동으로 실행되어 Jira/Slack 감지를 수행하고 [@Zime](#288777246)을 멘션한 코멘트를 추가해야 합니다.",
+  "description": "이 태스크는 Shell 스크립트 테스트용 자동화 트리거입니다.\\n\\nSlack 링크: https://slack.com/app_redirect?channel=C0A5ZTLNWA3\\nJira 링크: https://kakaovx.atlassian.net/browse/ITSM-9999\\n\\n이 태스크가 생성되면 [$AGENT_NAME] 가 자동으로 실행되어 Jira/Slack 감지를 수행하고 [@Zime](#288777246)을 멘션한 코멘트를 추가해야 합니다.",
   "assignees": [288777246],
   "priority": 3,
   "tags": ["test", "agent-trigger"]

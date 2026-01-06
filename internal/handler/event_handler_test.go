@@ -22,7 +22,7 @@ func TestLogHandler_HandleNewMessage(t *testing.T) {
 		Timestamp: "1704153600.000001",
 		UserID:    "U123ABC456",
 		Text:      "테스트 메시지입니다",
-		ChannelID: "C07AFHKESVC",
+		ChannelID: "C0A5ZTLNWA3",
 		CreatedAt: time.Date(2024, 1, 2, 10, 0, 0, 0, time.UTC),
 	}
 	event := domain.NewMessageEvent(msg)
@@ -37,7 +37,7 @@ func TestLogHandler_HandleNewMessage(t *testing.T) {
 		"[EVENT]",
 		"새 메시지 감지",
 		"U123ABC456",
-		"C07AFHKESVC",
+		"C0A5ZTLNWA3",
 		"테스트 메시지입니다",
 	}
 

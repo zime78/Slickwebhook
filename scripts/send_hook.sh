@@ -69,7 +69,7 @@ send_hook() {
     else
         # 기본 페이로드
         PAYLOAD_DATA='{
-            "channel": "D07BRDPJCGH",
+            "channel": "C0A5ZTLNWA3",
             "username": "Slack/Jira Bot",
             "text": "[테스트] Slack Hook 테스트 메시지",
             "attachments": [],
