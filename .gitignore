@@ -1,8 +1,10 @@
 # 환경변수 파일 (토큰 보호)
 .env
 config.ini
+config.email.ini
 
 # Go 빌드 파일
+email-monitor
 slack-monitor
 build/
 

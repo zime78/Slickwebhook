@@ -86,7 +86,7 @@ case "$1" in
         # 기본 테스트 메시지
         MESSAGE="🧪 *모니터링 테스트* - $TIMESTAMP
 
-• 채널: C07AFHKESVC
+• 채널: C0A5ZTLNWA3
 • 발신: SlickWebhook 테스트
 • 상태: 정상 동작 확인 중"
         ;;

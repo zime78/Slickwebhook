@@ -2,8 +2,10 @@ package domain
 
 import "time"
 
-// Message는 Slack 채널에서 수신된 메시지를 나타냅니다.
+// Message는 소스(Slack/Email)에서 수신된 메시지를 나타냅니다.
 type Message struct {
+	// Source는 메시지의 출처입니다 ("slack" 또는 "email")
+	Source string
 	// Timestamp는 Slack 메시지의 고유 식별자입니다 (ts 필드)
 	Timestamp string
 	// UserID는 메시지를 보낸 사용자의 ID입니다
@@ -16,6 +18,14 @@ type Message struct {
 	ChannelID string
 	// CreatedAt는 메시지가 작성된 시간입니다
 	CreatedAt time.Time
+
+	// Email 전용 필드
+	// Subject는 이메일 제목입니다
+	Subject string
+	// From은 이메일 발신자입니다
+	From string
+	// MessageID는 이메일의 고유 ID입니다
+	MessageID string
 }
 
 // EventType은 이벤트의 종류를 나타냅니다.

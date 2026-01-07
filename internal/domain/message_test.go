@@ -12,7 +12,7 @@ func TestMessage_Creation(t *testing.T) {
 	timestamp := "1704153600.000001"
 	userID := "U123ABC456"
 	text := "안녕하세요, 테스트 메시지입니다"
-	channelID := "C07AFHKESVC"
+	channelID := "C0A5ZTLNWA3"
 	createdAt := time.Now()
 
 	// When: Message 구조체 생성
@@ -46,7 +46,7 @@ func TestNewMessageEvent(t *testing.T) {
 		Timestamp: "1704153600.000001",
 		UserID:    "U123ABC456",
 		Text:      "테스트 메시지",
-		ChannelID: "C07AFHKESVC",
+		ChannelID: "C0A5ZTLNWA3",
 		CreatedAt: time.Now(),
 	}
 

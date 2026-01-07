@@ -1,6 +1,6 @@
 {
   "test_type": "slack_integration_check",
-  "slack_channel": "D07BRDPJCGH",
+  "slack_channel": "C0A5ZTLNWA3",
   "agent": "Slack/Jira Issue Flow Assistant",
   "workspace_id": "9014928476",
   "checks": [

@@ -67,7 +67,7 @@ func TestClickUpClient_CreateTask(t *testing.T) {
 		Timestamp: "1704153600.000001",
 		UserID:    "U123ABC",
 		Text:      "테스트 메시지입니다",
-		ChannelID: "C07AFHKESVC",
+		ChannelID: "C0A5ZTLNWA3",
 		CreatedAt: time.Now(),
 	}
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/slack-go/slack"
 	"github.com/zime/slickwebhook/internal/domain"
 )
 
@@ -25,6 +26,10 @@ func (m *MockSlackClient) GetChannelHistory(ctx context.Context, channelID strin
 		return nil, errors.New("API 호출 실패")
 	}
 	return m.messages, nil
+}
+
+func (m *MockSlackClient) PostMessage(ctx context.Context, channelID string, blocks []slack.Block, text string) error {
+	return nil
 }
 
 // MockEventHandler는 테스트용 이벤트 핸들러입니다.
