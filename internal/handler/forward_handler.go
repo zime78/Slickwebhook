@@ -81,9 +81,9 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 		}
 	}
 
-	// 상태 변경 이메일은 필터링 (Jira 상태 변경 알림 제외)
-	if h.isStatusChangeEmail(msg) {
-		h.logger.Printf("[FORWARD] ⏭️ 상태 변경 이메일 스킵: %s\n", msg.Subject)
+	// 노이즈 이메일 필터링 (Jira 상태 변경, 담당자 변경 알림 제외)
+	if h.isFilteredEmail(msg) {
+		h.logger.Printf("[FORWARD] ⏭️ 필터링된 이메일 스킵: %s\n", msg.Subject)
 		return
 	}
 
@@ -138,16 +138,24 @@ func (h *ChainHandler) Handle(event *domain.Event) {
 	}
 }
 
-// isStatusChangeEmail은 Jira 상태 변경 이메일인지 확인합니다.
-// 이메일 본문에 "상태 변경:" 패턴이 있으면 상태 변경 이메일로 판단합니다.
-func (h *ForwardHandler) isStatusChangeEmail(msg *domain.Message) bool {
-	// 이메일 소스가 아니면 상태 변경 필터링 불필요
+// isFilteredEmail은 필터링 대상 Jira 알림 이메일인지 확인합니다.
+// 이메일 본문에 필터링 대상 패턴이 있으면 필터링합니다.
+func (h *ForwardHandler) isFilteredEmail(msg *domain.Message) bool {
+	// 이메일 소스가 아니면 필터링 불필요
 	if msg.Source != "email" {
 		return false
 	}
-	// 본문에서 상태 변경 패턴 확인
-	if strings.Contains(msg.Text, "상태 변경:") {
-		return true
+
+	// 필터링 대상 패턴 목록
+	filterPatterns := []string{
+		"상태 변경",
+		"담당자 변경",
+	}
+
+	for _, pattern := range filterPatterns {
+		if strings.Contains(msg.Text, pattern) {
+			return true
+		}
 	}
 	return false
 }
