@@ -14,6 +14,10 @@ type Client interface {
 	// GetChannelHistory는 채널의 메시지 히스토리를 조회합니다.
 	// oldest 이후의 메시지만 반환합니다.
 	GetChannelHistory(ctx context.Context, channelID string, oldest string) ([]*domain.Message, error)
+
+	// PostMessage는 채널에 메시지를 전송합니다.
+	// blocks를 사용하여 Block Kit 형식의 메시지를 보낼 수 있습니다.
+	PostMessage(ctx context.Context, channelID string, blocks []slack.Block, text string) error
 }
 
 // SlackClient는 실제 Slack API 클라이언트를 래핑합니다.
@@ -82,4 +86,19 @@ func parseSlackTimestamp(ts string) time.Time {
 		}
 	}
 	return time.Unix(seconds, 0)
+}
+
+// PostMessage는 채널에 Block Kit 형식의 메시지를 전송합니다.
+// text는 Block을 지원하지 않는 클라이언트를 위한 폴백 텍스트입니다.
+func (c *SlackClient) PostMessage(ctx context.Context, channelID string, blocks []slack.Block, text string) error {
+	options := []slack.MsgOption{
+		slack.MsgOptionText(text, false),
+	}
+
+	if len(blocks) > 0 {
+		options = append(options, slack.MsgOptionBlocks(blocks...))
+	}
+
+	_, _, err := c.api.PostMessageContext(ctx, channelID, options...)
+	return err
 }

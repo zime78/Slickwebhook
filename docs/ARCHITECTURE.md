@@ -2,7 +2,7 @@
 
 ## 개요
 
-SlickWebhook은 **멀티 소스 모니터링 서비스**로, Slack 채널과 Gmail을 실시간으로 모니터링하여 새 메시지/이메일 감지 시 ClickUp 태스크를 자동 생성하는 Go 기반 서비스입니다.
+SlickWebhook은 **멀티 소스 모니터링 서비스**로, Slack 채널과 Gmail을 실시간으로 모니터링하여 새 메시지/이메일 감지 시 ClickUp 태스크를 자동 생성하고, Slack 채널로 알림을 전송하는 Go 기반 서비스입니다.
 
 ### 지원 소스
 
@@ -43,8 +43,10 @@ flowchart TB
             CHAIN["ChainHandler"]
             LOG["LogHandler"]
             FWD["ForwardHandler"]
+            SLACK_NOTIFY["SlackNotifyHandler"]
         end
         CLICKUP_CLIENT["clickup.Client"]
+        SLACK_NOTIFY_CLIENT["slack.Client<br/>(알림 전송)"]
         HISTORY["history.FileStore"]
         DOMAIN["domain.Message/Event"]
     end
@@ -76,11 +78,14 @@ flowchart TB
     %% 공유 핸들러 흐름
     CHAIN --> LOG
     CHAIN --> FWD
+    CHAIN --> SLACK_NOTIFY
     FWD --> CLICKUP_CLIENT
     CLICKUP_CLIENT <--> CLICKUP
     FWD --> HISTORY
     HISTORY --> SLACK_HISTORY
     HISTORY --> EMAIL_HISTORY
+    SLACK_NOTIFY --> SLACK_NOTIFY_CLIENT
+    SLACK_NOTIFY_CLIENT <--> SLACK
 ```
 
 ### 레이어 구조 (Clean Architecture)
@@ -211,6 +216,9 @@ stateDiagram-v2
 | `FILTER_EXCLUDE` | 제외할 발신자 (콤마 구분) | - |
 | `FILTER_EXCLUDE_SUBJECT` | 제외할 제목 키워드 (콤마 구분) | - |
 | `FILTER_LABEL` | 모니터링할 라벨 | INBOX |
+| `SLACK_NOTIFY_ENABLED` | Slack 알림 활성화 | false |
+| `SLACK_BOT_TOKEN` | Slack Bot OAuth 토큰 | - |
+| `SLACK_NOTIFY_CHANNEL` | 알림 전송 채널 ID | - |
 
 ### 4. 이벤트 핸들러 (`internal/handler/`)
 
@@ -221,14 +229,39 @@ flowchart LR
     EVENT[Event] --> CHAIN[ChainHandler]
     CHAIN --> LOG[LogHandler<br/>로그 출력]
     CHAIN --> FWD[ForwardHandler<br/>ClickUp 전송]
+    CHAIN --> SLACK[SlackNotifyHandler<br/>Slack 알림]
     FWD --> HISTORY[히스토리 저장]
+    SLACK --> SLACK_API[Slack API]
 ```
 
 | 핸들러 | 역할 |
 |--------|------|
 | `LogHandler` | 이벤트 로그 출력 |
 | `ForwardHandler` | ClickUp 태스크 생성 + 히스토리 관리 |
+| `SlackNotifyHandler` | Slack 채널 알림 전송 (Email 소스 전용) |
 | `ChainHandler` | 핸들러 체이닝 (순차 실행) |
+
+#### SlackNotifyHandler
+
+이메일 수신 시 Slack 채널로 알림을 전송합니다.
+
+**Slack Block Kit 메시지 형식:**
+
+```text
+┌─────────────────────────────────────────┐
+│  📧 새 이메일 알림                        │  Header
+├─────────────────────────────────────────┤
+│  *발신자:* sender@example.com            │
+│  *제목:* [JIRA-123] 이슈 업데이트          │  Section
+│  *시간:* 2025-01-07 14:30:25             │
+├─────────────────────────────────────────┤
+│  > 본문 미리보기 (최대 300자)...           │  Section
+├─────────────────────────────────────────┤
+│  Email Monitor 자동 알림                  │  Context
+└─────────────────────────────────────────┘
+```
+
+**필요 Slack Bot 권한:** `chat:write`, `chat:write.public`
 
 ### 5. 외부 클라이언트
 
@@ -237,8 +270,16 @@ flowchart LR
 ```go
 type Client interface {
     GetChannelHistory(ctx context.Context, channelID, oldest string) ([]*domain.Message, error)
+    PostMessage(ctx context.Context, channelID string, blocks []slack.Block, text string) error
 }
 ```
+
+**주요 기능:**
+
+| 메서드 | 용도 |
+|--------|------|
+| `GetChannelHistory` | 채널 메시지 히스토리 조회 (Slack Monitor용) |
+| `PostMessage` | Block Kit 형식 메시지 전송 (Email→Slack 알림용) |
 
 #### Gmail Client (`internal/gmail/`)
 
@@ -387,7 +428,8 @@ flowchart TD
     EMAIL_MAIN --> GMAIL["gmail"]
     EMAIL_MAIN --> CLICKUP
     EMAIL_MAIN --> HISTORY
-    EMAIL_MAIN --> STORE["store"]
+    EMAIL_MAIN --> STORE
+    EMAIL_MAIN --> SLACK_NOTIFY["slack (알림)"]
 
     MONITOR --> DOMAIN["domain"]
     MONITOR --> HANDLER
@@ -401,8 +443,10 @@ flowchart TD
     HANDLER --> DOMAIN
     HANDLER --> CLICKUP
     HANDLER --> HISTORY
+    HANDLER --> SLACK_NOTIFY
 
     SLACK --> DOMAIN
+    SLACK_NOTIFY --> DOMAIN
     GMAIL --> DOMAIN
     CLICKUP --> DOMAIN
     HISTORY --> DOMAIN
@@ -424,7 +468,8 @@ func (h *MyHandler) Handle(event *domain.Event) {
 eventHandler = handler.NewChainHandler(
     logHandler,
     forwardHandler,
-    myHandler,  // 새 핸들러
+    slackNotifyHandler,  // Slack 알림
+    myHandler,           // 새 핸들러
 )
 ```
 
