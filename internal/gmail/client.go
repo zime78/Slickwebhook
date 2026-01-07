@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net/mail"
 	"regexp"
@@ -251,15 +252,68 @@ func extractFromMultipart(contentType string, body []byte) string {
 	// boundary 추출
 	_, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
-		return removeHeaders(string(body))
+		return cleanRawContent(string(body))
 	}
 
 	boundary := params["boundary"]
 	if boundary == "" {
-		return removeHeaders(string(body))
+		return cleanRawContent(string(body))
 	}
 
-	// 파트 분리
+	// mime/multipart 표준 라이브러리 사용
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+
+	var textPart, htmlPart string
+
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// 파싱 실패 시 수동 파싱 시도
+			return extractFromMultipartManual(boundary, body)
+		}
+
+		partContentType := part.Header.Get("Content-Type")
+		partEncoding := part.Header.Get("Content-Transfer-Encoding")
+
+		partBody, err := io.ReadAll(part)
+		if err != nil {
+			continue
+		}
+
+		// 중첩된 multipart 처리
+		if strings.Contains(partContentType, "multipart") {
+			nested := extractFromMultipart(partContentType, partBody)
+			if nested != "" {
+				return nested
+			}
+			continue
+		}
+
+		decoded := decodeBody(partBody, partEncoding)
+
+		if strings.Contains(strings.ToLower(partContentType), "text/plain") {
+			textPart = decoded
+		} else if strings.Contains(strings.ToLower(partContentType), "text/html") {
+			htmlPart = decoded
+		}
+	}
+
+	// text/plain 우선, 없으면 html에서 추출
+	if textPart != "" {
+		return textPart
+	}
+	if htmlPart != "" {
+		return stripHTML(htmlPart)
+	}
+
+	return ""
+}
+
+// extractFromMultipartManual은 수동으로 multipart를 파싱합니다 (fallback).
+func extractFromMultipartManual(boundary string, body []byte) string {
 	parts := bytes.Split(body, []byte("--"+boundary))
 
 	var textPart, htmlPart string
@@ -267,6 +321,11 @@ func extractFromMultipart(contentType string, body []byte) string {
 	for _, part := range parts {
 		partStr := string(part)
 		lowerPart := strings.ToLower(partStr)
+
+		// 종료 마커 무시
+		if strings.HasPrefix(strings.TrimSpace(partStr), "--") {
+			continue
+		}
 
 		// Content-Transfer-Encoding 확인
 		encoding := ""
@@ -293,6 +352,73 @@ func extractFromMultipart(contentType string, body []byte) string {
 	}
 
 	return ""
+}
+
+// cleanRawContent는 MIME 경계 마커를 제거합니다.
+func cleanRawContent(content string) string {
+	// MIME 경계 마커 제거 패턴
+	lines := strings.Split(content, "\n")
+	var cleaned []string
+	skipUntilEmpty := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// MIME 경계 라인 및 헤더 스킵
+		if strings.HasPrefix(trimmed, "--") && (strings.Contains(trimmed, "enmime") || len(trimmed) > 30) {
+			skipUntilEmpty = true
+			continue
+		}
+
+		// Content-* 헤더 스킵
+		if strings.HasPrefix(strings.ToLower(trimmed), "content-") {
+			skipUntilEmpty = true
+			continue
+		}
+
+		// 빈 줄 후 내용 시작
+		if skipUntilEmpty && trimmed == "" {
+			skipUntilEmpty = false
+			continue
+		}
+
+		if !skipUntilEmpty && trimmed != "" {
+			// Base64로 보이는 줄 스킵
+			if isBase64Line(trimmed) {
+				continue
+			}
+			cleaned = append(cleaned, line)
+		}
+	}
+
+	return strings.TrimSpace(strings.Join(cleaned, "\n"))
+}
+
+// isBase64Line은 해당 줄이 Base64 인코딩된 데이터인지 확인합니다.
+// 보수적 조건: 60자 이상 + (표준 MIME Base64 라인 길이 76자 또는 패딩 '=' 포함)
+func isBase64Line(line string) bool {
+	lineLen := len(line)
+
+	// 60자 미만은 Base64로 간주하지 않음
+	if lineLen < 60 {
+		return false
+	}
+
+	// 표준 MIME Base64 라인은 76자 또는 끝에 = 패딩이 있음
+	hasStandardLength := lineLen == 76
+	hasPadding := strings.HasSuffix(line, "=")
+
+	if !hasStandardLength && !hasPadding {
+		return false
+	}
+
+	// Base64 문자셋 검증: A-Z, a-z, 0-9, +, /, =
+	for _, r := range line {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '+' || r == '/' || r == '=') {
+			return false
+		}
+	}
+	return true
 }
 
 // extractPartBody는 MIME 파트에서 본문만 추출합니다.
