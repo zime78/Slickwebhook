@@ -94,11 +94,35 @@ func newXoauth2Client(username, accessToken string) sasl.Client {
 	}
 }
 
+// ErrRefreshTokenExpired는 Refresh Token이 만료/취소되었을 때 반환되는 에러입니다.
+var ErrRefreshTokenExpired = fmt.Errorf("refresh token expired or revoked")
+
 // GetNewMessages는 지정된 시간 이후의 새 이메일을 조회합니다.
 func (c *GmailClient) GetNewMessages(ctx context.Context, since time.Time) ([]*domain.Message, error) {
 	tokenSource := c.oauthConfig.TokenSource(ctx, c.token)
 	newToken, err := tokenSource.Token()
 	if err != nil {
+		// invalid_grant 에러 감지 (Refresh Token 만료/취소)
+		errStr := err.Error()
+		if strings.Contains(errStr, "invalid_grant") ||
+			strings.Contains(errStr, "Token has been expired or revoked") {
+			c.logger.Printf("\n" +
+				"╔══════════════════════════════════════════════════════════════════╗\n" +
+				"║  🚨 GMAIL_REFRESH_TOKEN 만료 또는 취소됨                          ║\n" +
+				"╠══════════════════════════════════════════════════════════════════╣\n" +
+				"║  원인:                                                            ║\n" +
+				"║    - Google 계정 비밀번호 변경                                    ║\n" +
+				"║    - Google 계정 권한 페이지에서 앱 연결 해제                     ║\n" +
+				"║    - 6개월 이상 토큰 미사용                                       ║\n" +
+				"║    - 새로운 Refresh Token 발급으로 인한 기존 토큰 무효화          ║\n" +
+				"╠══════════════════════════════════════════════════════════════════╣\n" +
+				"║  복구 방법:                                                       ║\n" +
+				"║    1. OAuth 인증을 다시 진행하여 새 Refresh Token 발급            ║\n" +
+				"║    2. config.email.ini 또는 환경변수 GMAIL_REFRESH_TOKEN 업데이트 ║\n" +
+				"║    3. email-monitor 재시작                                        ║\n" +
+				"╚══════════════════════════════════════════════════════════════════╝\n")
+			return nil, fmt.Errorf("%w: %v", ErrRefreshTokenExpired, err)
+		}
 		return nil, fmt.Errorf("failed to refresh access token: %w", err)
 	}
 	c.token = newToken
