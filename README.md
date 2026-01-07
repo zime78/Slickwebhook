@@ -1,6 +1,6 @@
 # SlickWebhook
 
-Slack 채널 모니터링 및 ClickUp 자동 연동 도구입니다.
+Slack 채널 및 Email(Gmail) 모니터링과 ClickUp 자동 연동 도구입니다.
 
 > 📌 **개발 지침**: 모든 문서와 내용은 한국어로 작성합니다.
 
@@ -8,81 +8,79 @@ Slack 채널 모니터링 및 ClickUp 자동 연동 도구입니다.
 
 ## 🚀 주요 기능
 
-| 기능 | 설명 |
-|------|------|
-| Slack 모니터링 | 채널 메시지를 실시간 감지 (폴링 방식) |
-| ClickUp 연동 | 새 메시지 감지 시 자동 태스크 생성 |
-| 히스토리 관리 | 전송 기록 저장 (최대 100개, 설정 가능) |
-| 크로스 플랫폼 | macOS, Linux, Windows 지원 |
-| 백그라운드 실행 | macOS launchd 서비스 지원 |
+| 기능 | Slack Monitor | Email Monitor |
+|------|:-------------:|:-------------:|
+| 메시지 감지 | ✅ 채널 폴링 | ✅ IMAP 폴링 |
+| ClickUp 연동 | ✅ | ✅ |
+| 히스토리 관리 | ✅ | ✅ |
+| 발신자 필터 | ✅ 봇 ID | ✅ 이메일 주소 |
+| 크로스 플랫폼 | ✅ | ✅ |
+
+---
+
+## 📐 아키텍처
+
+```
+┌─────────────────┐    ┌─────────────────┐
+│  Slack Monitor  │    │  Email Monitor  │
+│ (slack-monitor) │    │ (email-monitor) │
+└────────┬────────┘    └────────┬────────┘
+         │                      │
+         └──────────┬───────────┘
+                    │
+         ┌──────────▼──────────┐
+         │   Event Handler     │
+         │  (공통 이벤트 처리)  │
+         └──────────┬──────────┘
+                    │
+         ┌──────────▼──────────┐
+         │   ClickUp Client    │
+         │   (태스크 생성)      │
+         └─────────────────────┘
+```
 
 ---
 
 ## ⚙️ 빠른 시작
 
-### 1. 바이너리 다운로드 또는 빌드
+### Slack Monitor
 
 ```bash
-# 전체 플랫폼 빌드
-make build-all
+# 빌드
+make build-slack
 
-# build 폴더에 생성됨:
-# - slack-monitor-macos-apple-silicon
-# - slack-monitor-macos-intel
-# - slack-monitor-linux-x86
-# - slack-monitor-linux-arm
-# - slack-monitor-windows-x86.exe
-# - config.ini
-```
-
-### 2. 설정 파일 생성
-
-바이너리와 같은 폴더에 `config.ini` 파일 생성:
-
-```bash
-# Slack 설정 (필수)
+# 설정 (config.ini)
 SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_CHANNEL_ID=[Channel ID]
+SLACK_CHANNEL_ID=C0A5ZTLNWA3
 POLL_INTERVAL=10s
-
-# ClickUp 설정 (선택)
 CLICKUP_API_TOKEN=pk_your_token
-CLICKUP_LIST_ID=[List ID]
-HISTORY_MAX_SIZE=100
+CLICKUP_LIST_ID=901413896178
 
-# 필터 설정 (선택)
-FILTER_BOT_ONLY=true          # 봇 메시지만 처리
-ALLOWED_BOT_IDS=B123,B456     # 특정 봇만 허용 (콤마 구분)
+# 실행
+./slack-monitor
 ```
 
-### 3. 실행
+### Email Monitor
 
 ```bash
-# macOS (Apple Silicon)
-./slack-monitor-macos-apple-silicon
+# 빌드
+make build-email
 
-# macOS (Intel)
-./slack-monitor-macos-intel
+# 설정 (config.email.ini)
+GMAIL_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GMAIL_CLIENT_SECRET=your-client-secret
+GMAIL_REFRESH_TOKEN=your-refresh-token
+GMAIL_USER_EMAIL=your-email@gmail.com
+POLL_INTERVAL=30s
+FILTER_FROM=jira@atlassian.com
+CLICKUP_API_TOKEN=pk_your_token
+CLICKUP_LIST_ID=901413896178
 
-# Linux
-./slack-monitor-linux-x86      # x86
-./slack-monitor-linux-arm      # ARM
-
-# Windows (PowerShell)
-.\slack-monitor-windows-x86.exe
+# 실행
+./email-monitor
 ```
 
-### 4. 백그라운드 실행 (macOS)
-
-```bash
-# nohup 사용
-nohup ./slack-monitor-macos-apple-silicon > monitor.log 2>&1 &
-
-# 또는 launchd 서비스 설치 (프로젝트 루트에서)
-make install
-```
-
-> 💡 `config.ini`와 `history.json`은 바이너리와 **같은 폴더**에 위치해야 합니다.
+> 📧 Gmail OAuth 설정 방법은 [Gmail OAuth 설정 가이드](#-gmail-oauth-설정)를 참고하세요.
 
 ---
 
@@ -90,21 +88,23 @@ make install
 
 ```text
 SlickWebhook/
-├── cmd/monitor/main.go        # 메인 엔트리포인트
+├── cmd/
+│   ├── slack-monitor/         # Slack Monitor 진입점
+│   │   └── main.go
+│   └── email-monitor/         # Email Monitor 진입점
+│       └── main.go
 ├── internal/
-│   ├── config/                # 설정 로더
-│   ├── clickup/               # ClickUp API 클라이언트
-│   ├── domain/                # 도메인 모델
-│   ├── handler/               # 이벤트 핸들러
-│   ├── history/               # 히스토리 저장소
-│   ├── monitor/               # 모니터 서비스
-│   └── slack/                 # Slack API 클라이언트
-├── scripts/
-│   ├── send_slack_test.sh     # Slack 테스트 메시지 전송
-│   ├── install_macos.sh       # macOS 서비스 설치
-│   └── com.slickwebhook.monitor.plist
-├── build/                     # 빌드 결과물
-├── config.env.example         # 설정 템플릿
+│   ├── clickup/               # ClickUp API 클라이언트 (공통)
+│   ├── config/                # 설정 로더 (공통)
+│   ├── domain/                # 도메인 모델 (공통)
+│   ├── handler/               # 이벤트 핸들러 (공통)
+│   ├── history/               # 히스토리 저장소 (공통)
+│   ├── monitor/               # Slack 모니터 서비스
+│   ├── slack/                 # Slack API 클라이언트
+│   ├── emailmonitor/          # Email 모니터 서비스
+│   └── gmail/                 # Gmail IMAP 클라이언트
+├── config.ini                 # Slack Monitor 설정
+├── config.email.ini           # Email Monitor 설정
 ├── Makefile                   # 빌드/테스트 명령
 └── go.mod
 ```
@@ -113,92 +113,101 @@ SlickWebhook/
 
 ## 🛠️ Makefile 명령어
 
+### 빌드
+
 | 명령어 | 설명 |
 |--------|------|
-| `make build` | 현재 플랫폼 빌드 |
-| `make build-all` | 전체 플랫폼 빌드 (darwin/linux/windows) |
+| `make build-slack` | Slack Monitor 빌드 |
+| `make build-email` | Email Monitor 빌드 |
+| `make build-slack-all` | Slack Monitor 전 플랫폼 빌드 |
+| `make build-email-all` | Email Monitor 전 플랫폼 빌드 |
+| `make build-all` | 모든 플랫폼 빌드 (Slack + Email) |
+
+### 실행 및 테스트
+
+| 명령어 | 설명 |
+|--------|------|
+| `make run-slack` | Slack Monitor 실행 |
+| `make run-email` | Email Monitor 실행 |
 | `make test` | 테스트 실행 |
 | `make test-cover` | 커버리지 포함 테스트 |
+
+### 서비스 관리 (macOS)
+
+| 명령어 | 설명 |
+|--------|------|
 | `make install` | macOS 백그라운드 서비스 설치 |
 | `make uninstall` | macOS 서비스 제거 |
 | `make status` | 서비스 상태 확인 |
-| `make clean` | 빌드 결과물 정리 |
-
----
-
-## 🍎 백그라운드 실행
-
-### 방법 1: nohup (간단)
-
-```bash
-cd build
-nohup ./slack-monitor-macos-apple-silicon > monitor.log 2>&1 &
-
-# 프로세스 확인
-ps aux | grep slack-monitor
-
-# 로그 확인
-tail -f monitor.log
-```
-
-### 방법 2: macOS launchd 서비스 (권장)
-
-```bash
-# 설치 (프로젝트 루트에서)
-./scripts/install_macos.sh
-# 또는
-make install
-
-# 로그 확인
-tail -f ~/.slickwebhook/monitor.log
-
-# 서비스 중지
-make uninstall
-
-# 상태 확인
-make status
-```
-
-> 💡 launchd 서비스는 **재부팅 후에도 자동 시작**되며, 프로세스 종료 시 **자동 재시작**됩니다.
-
-### 방법 3: screen/tmux
-
-```bash
-screen -S slack-monitor
-./slack-monitor-macos-apple-silicon
-# Ctrl+A, D로 detach
-```
-
----
-
-## 🧪 테스트
-
-```bash
-# 전체 테스트
-make test
-
-# Slack 테스트 메시지 전송
-./scripts/send_slack_test.sh 1   # Jira 이슈 스타일
-./scripts/send_slack_test.sh 2   # 버그 리포트 스타일
-```
+| `make restart` | 서비스 재시작 |
 
 ---
 
 ## 📋 환경변수
 
+### Slack Monitor (config.ini)
+
 | 변수명 | 필수 | 설명 |
-|--------|------|------|
-| `SLACK_BOT_TOKEN` | ✅ | Slack Bot 토큰 (`channels:history` 권한) |
+|--------|:----:|------|
+| `SLACK_BOT_TOKEN` | ✅ | Slack Bot 토큰 |
 | `SLACK_CHANNEL_ID` | ✅ | 모니터링할 채널 ID |
 | `POLL_INTERVAL` | | 폴링 간격 (기본: `10s`) |
+| `FILTER_BOT_ONLY` | | 봇 메시지만 처리 (`true`/`false`) |
+| `ALLOWED_BOT_IDS` | | 허용할 봇 ID (콤마 구분) |
+
+### Email Monitor (config.email.ini)
+
+| 변수명 | 필수 | 설명 |
+|--------|:----:|------|
+| `GMAIL_CLIENT_ID` | ✅ | Google OAuth Client ID |
+| `GMAIL_CLIENT_SECRET` | ✅ | Google OAuth Client Secret |
+| `GMAIL_REFRESH_TOKEN` | ✅ | OAuth Refresh Token |
+| `GMAIL_USER_EMAIL` | ✅ | 모니터링할 Gmail 주소 |
+| `POLL_INTERVAL` | | 폴링 간격 (기본: `30s`) |
+| `FILTER_FROM` | | 필터링할 발신자 (콤마 구분) |
+| `FILTER_LABEL` | | 모니터링할 라벨 (기본: `INBOX`) |
+
+### 공통 (ClickUp 연동)
+
+| 변수명 | 필수 | 설명 |
+|--------|:----:|------|
 | `CLICKUP_API_TOKEN` | | ClickUp API 토큰 |
 | `CLICKUP_LIST_ID` | | 태스크 생성할 리스트 ID |
 | `HISTORY_MAX_SIZE` | | 히스토리 최대 개수 (기본: `100`) |
 
 ---
 
+## 📧 Gmail OAuth 설정
+
+### 1. Google Cloud Console 설정
+
+1. [Google Cloud Console](https://console.cloud.google.com) 접속
+2. 프로젝트 생성 또는 선택
+3. **APIs & Services** → **Library** → "Gmail API" 활성화
+4. **Credentials** → **Create Credentials** → **OAuth client ID**
+5. 애플리케이션 유형: **웹 애플리케이션**
+6. 승인된 리디렉션 URI 추가:
+
+   ```
+   https://developers.google.com/oauthplayground
+   ```
+
+### 2. Refresh Token 획득
+
+1. [OAuth 2.0 Playground](https://developers.google.com/oauthplayground/) 접속
+2. ⚙️ 설정 → **"Use your own OAuth credentials"** 체크
+3. Client ID/Secret 입력
+4. 스코프 입력: `https://mail.google.com/`
+5. **Authorize APIs** → Google 로그인 → 권한 승인
+6. **Exchange authorization code for tokens** 클릭
+7. `refresh_token` 값 복사 → `config.email.ini`에 입력
+
+---
+
 ## 🔗 참고 문서
 
 - [Slack API - conversations.history](https://api.slack.com/methods/conversations.history)
+- [Gmail API - IMAP](https://developers.google.com/gmail/imap)
 - [ClickUp API](https://developer.clickup.com/)
 - [slack-go/slack SDK](https://github.com/slack-go/slack)
+- [emersion/go-imap](https://github.com/emersion/go-imap)

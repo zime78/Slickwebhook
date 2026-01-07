@@ -2,7 +2,14 @@
 
 ## 개요
 
-SlickWebhook은 Slack 채널을 실시간으로 모니터링하고, 새 메시지 감지 시 ClickUp 태스크를 자동 생성하는 Go 기반 서비스입니다.
+SlickWebhook은 **멀티 소스 모니터링 서비스**로, Slack 채널과 Gmail을 실시간으로 모니터링하여 새 메시지/이메일 감지 시 ClickUp 태스크를 자동 생성하는 Go 기반 서비스입니다.
+
+### 지원 소스
+
+| 소스 | 설명 | 엔트리포인트 |
+|------|------|--------------|
+| Slack | 채널 메시지 모니터링 (봇 필터링 지원) | `cmd/slack-monitor/` |
+| Gmail | IMAP 기반 이메일 모니터링 (발신자/라벨 필터링) | `cmd/email-monitor/` |
 
 ## 시스템 아키텍처
 
@@ -12,42 +19,64 @@ SlickWebhook은 Slack 채널을 실시간으로 모니터링하고, 새 메시�
 flowchart TB
     subgraph External["외부 서비스"]
         SLACK[("Slack API")]
+        GMAIL[("Gmail IMAP")]
         CLICKUP[("ClickUp API")]
     end
 
-    subgraph SlickWebhook["SlickWebhook 서비스"]
-        MAIN["main.go<br/>(엔트리포인트)"]
-        CONFIG["config.Loader"]
-        MONITOR["monitor.Service"]
+    subgraph SlackMonitor["Slack Monitor 서비스"]
+        SLACK_MAIN["cmd/slack-monitor<br/>(엔트리포인트)"]
+        SLACK_CONFIG["config.ini"]
+        SLACK_SERVICE["monitor.Service"]
+        SLACK_CLIENT["slack.Client"]
+    end
 
+    subgraph EmailMonitor["Email Monitor 서비스"]
+        EMAIL_MAIN["cmd/email-monitor<br/>(엔트리포인트)"]
+        EMAIL_CONFIG["config.email.ini"]
+        EMAIL_SERVICE["emailmonitor.Service"]
+        GMAIL_CLIENT["gmail.Client"]
+    end
+
+    subgraph SharedComponents["공유 컴포넌트"]
         subgraph Handlers["이벤트 핸들러"]
             CHAIN["ChainHandler"]
             LOG["LogHandler"]
             FWD["ForwardHandler"]
         end
-
-        SLACK_CLIENT["slack.Client"]
         CLICKUP_CLIENT["clickup.Client"]
         HISTORY["history.FileStore"]
+        DOMAIN["domain.Message/Event"]
     end
 
     subgraph Storage["로컬 저장소"]
-        CONFIG_FILE[("config.ini")]
-        HISTORY_FILE[("history.json")]
+        SLACK_HISTORY[("history.json")]
+        EMAIL_HISTORY[("email_history.json")]
     end
 
-    CONFIG_FILE --> CONFIG
-    CONFIG --> MAIN
-    MAIN --> MONITOR
-    MONITOR --> SLACK_CLIENT
+    %% Slack Monitor 흐름
+    SLACK_CONFIG --> SLACK_MAIN
+    SLACK_MAIN --> SLACK_SERVICE
+    SLACK_SERVICE --> SLACK_CLIENT
     SLACK_CLIENT <--> SLACK
-    MONITOR --> CHAIN
+    SLACK_SERVICE --> DOMAIN
+    SLACK_SERVICE --> CHAIN
+
+    %% Email Monitor 흐름
+    EMAIL_CONFIG --> EMAIL_MAIN
+    EMAIL_MAIN --> EMAIL_SERVICE
+    EMAIL_SERVICE --> GMAIL_CLIENT
+    GMAIL_CLIENT <--> GMAIL
+    EMAIL_SERVICE --> DOMAIN
+    EMAIL_SERVICE --> CHAIN
+
+    %% 공유 핸들러 흐름
     CHAIN --> LOG
     CHAIN --> FWD
     FWD --> CLICKUP_CLIENT
     CLICKUP_CLIENT <--> CLICKUP
     FWD --> HISTORY
-    HISTORY --> HISTORY_FILE
+    HISTORY --> SLACK_HISTORY
+    HISTORY --> EMAIL_HISTORY
 ```
 
 ### 레이어 구조 (Clean Architecture)
@@ -55,11 +84,13 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph Presentation["Presentation Layer"]
-        MAIN["cmd/monitor/main.go"]
+        SLACK_MAIN["cmd/slack-monitor/main.go"]
+        EMAIL_MAIN["cmd/email-monitor/main.go"]
     end
 
     subgraph Application["Application Layer"]
-        MONITOR["monitor.Service"]
+        SLACK_MONITOR["monitor.Service"]
+        EMAIL_MONITOR["emailmonitor.Service"]
         HANDLER["handler.EventHandler"]
     end
 
@@ -70,35 +101,56 @@ flowchart TB
 
     subgraph Infrastructure["Infrastructure Layer"]
         SLACK["slack.Client"]
+        GMAIL["gmail.Client"]
         CLICKUP["clickup.Client"]
         CONFIG["config.Loader"]
         HISTORY["history.Store"]
     end
 
-    MAIN --> MONITOR
-    MAIN --> HANDLER
-    MONITOR --> EVENT
+    SLACK_MAIN --> SLACK_MONITOR
+    EMAIL_MAIN --> EMAIL_MONITOR
+    SLACK_MAIN --> HANDLER
+    EMAIL_MAIN --> HANDLER
+    SLACK_MONITOR --> EVENT
+    EMAIL_MONITOR --> EVENT
     HANDLER --> EVENT
     EVENT --> MESSAGE
-    MONITOR -.->|interface| SLACK
+    SLACK_MONITOR -.->|interface| SLACK
+    EMAIL_MONITOR -.->|interface| GMAIL
     HANDLER -.->|interface| CLICKUP
     HANDLER -.->|interface| HISTORY
-    MAIN -.->|uses| CONFIG
+    SLACK_MAIN -.->|uses| CONFIG
+    EMAIL_MAIN -.->|uses| CONFIG
 ```
 
 ## 컴포넌트 상세
 
 ### 1. 도메인 모델 (`internal/domain/`)
 
-핵심 비즈니스 엔티티를 정의합니다.
+핵심 비즈니스 엔티티를 정의합니다. **멀티 소스 지원**을 위해 `Source` 필드와 Email 전용 필드가 추가되었습니다.
 
 | 타입 | 설명 |
 |------|------|
-| `Message` | Slack 메시지 (Timestamp, UserID, BotID, Text, ChannelID, CreatedAt) |
+| `Message` | 통합 메시지 모델 (Slack/Email 공용) |
 | `Event` | 이벤트 래퍼 (Type, Message, Error, OccurredAt) |
 | `EventType` | 이벤트 종류 (`new_message`, `error`) |
 
-### 2. 모니터 서비스 (`internal/monitor/`)
+**Message 필드 구조:**
+
+| 필드 | 타입 | 용도 | Slack | Email |
+|------|------|------|-------|-------|
+| `Source` | string | 메시지 출처 | `"slack"` | `"email"` |
+| `Timestamp` | string | 고유 식별자 | Slack ts | IMAP UID |
+| `UserID` | string | 사용자 ID | O | - |
+| `BotID` | string | 봇 ID | O | - |
+| `Text` | string | 본문 | O | O |
+| `ChannelID` | string | 채널 ID | O | - |
+| `CreatedAt` | time.Time | 생성 시간 | O | O |
+| `Subject` | string | 이메일 제목 | - | O |
+| `From` | string | 발신자 | - | O |
+| `MessageID` | string | 이메일 ID | - | O |
+
+### 2. Slack 모니터 서비스 (`internal/monitor/`)
 
 ```mermaid
 stateDiagram-v2
@@ -118,8 +170,31 @@ stateDiagram-v2
 - 폴링 기반 Slack 채널 모니터링
 - 마지막 타임스탬프 관리 (중복 방지)
 - 이벤트 생성 및 핸들러 위임
+- 봇 메시지 필터링 지원
 
-### 3. 이벤트 핸들러 (`internal/handler/`)
+### 3. Email 모니터 서비스 (`internal/emailmonitor/`)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: Start()
+    Idle --> Polling: ticker.C
+    Polling --> CheckEmails: GetNewMessages()
+    CheckEmails --> ProcessEmails: 새 이메일 있음
+    CheckEmails --> Idle: 새 이메일 없음
+    ProcessEmails --> HandleEvent: EventHandler.Handle()
+    HandleEvent --> UpdateTime
+    UpdateTime --> Idle
+    Idle --> [*]: Stop() / ctx.Done()
+```
+
+**주요 책임:**
+
+- 폴링 기반 Gmail 모니터링 (IMAP)
+- 마지막 시간 관리 (중복 방지)
+- 이벤트 생성 및 핸들러 위임
+- 발신자/라벨 필터링 지원
+
+### 4. 이벤트 핸들러 (`internal/handler/`)
 
 **Chain of Responsibility 패턴** 적용:
 
@@ -137,7 +212,7 @@ flowchart LR
 | `ForwardHandler` | ClickUp 태스크 생성 + 히스토리 관리 |
 | `ChainHandler` | 핸들러 체이닝 (순차 실행) |
 
-### 4. 외부 클라이언트
+### 5. 외부 클라이언트
 
 #### Slack Client (`internal/slack/`)
 
@@ -147,6 +222,22 @@ type Client interface {
 }
 ```
 
+#### Gmail Client (`internal/gmail/`)
+
+```go
+type Client interface {
+    GetNewMessages(ctx context.Context, since time.Time) ([]*domain.Message, error)
+    Close() error
+}
+```
+
+**특징:**
+
+- OAuth2 인증 (XOAUTH2)
+- IMAP 기반 이메일 조회
+- 발신자 필터링 (`FilterFrom`)
+- 라벨 필터링 (`FilterLabel`, 기본: INBOX)
+
 #### ClickUp Client (`internal/clickup/`)
 
 ```go
@@ -155,7 +246,7 @@ type Client interface {
 }
 ```
 
-### 5. 히스토리 저장소 (`internal/history/`)
+### 6. 히스토리 저장소 (`internal/history/`)
 
 ```go
 type Store interface {
@@ -201,37 +292,64 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    subgraph 시작시
-        A[config.ini] -->|LoadEnvFile| B[환경변수]
-        B --> C[os.Getenv]
-        C --> D[서비스 초기화]
+    subgraph SlackMonitor["Slack Monitor"]
+        A1[config.ini] -->|LoadEnvFile| B1[환경변수]
+        B1 --> C1[os.Getenv]
+        C1 --> D1[서비스 초기화]
+    end
+
+    subgraph EmailMonitor["Email Monitor"]
+        A2[config.email.ini] -->|LoadEnvFile| B2[환경변수]
+        B2 --> C2[os.Getenv]
+        C2 --> D2[서비스 초기화]
     end
 ```
 
-**설정 우선순위**: `config.ini` → 환경변수
+**설정 우선순위**: 설정 파일 → 환경변수
+
+| 서비스 | 설정 파일 | 히스토리 파일 |
+|--------|-----------|---------------|
+| Slack Monitor | `config.ini` | `history.json` |
+| Email Monitor | `config.email.ini` | `email_history.json` |
 
 ## 의존성 그래프
 
 ```mermaid
 flowchart TD
-    MAIN["cmd/monitor/main.go"]
+    subgraph Entrypoints["엔트리포인트"]
+        SLACK_MAIN["cmd/slack-monitor/main.go"]
+        EMAIL_MAIN["cmd/email-monitor/main.go"]
+    end
 
-    MAIN --> CONFIG["config"]
-    MAIN --> MONITOR["monitor"]
-    MAIN --> HANDLER["handler"]
-    MAIN --> SLACK["slack"]
-    MAIN --> CLICKUP["clickup"]
-    MAIN --> HISTORY["history"]
+    SLACK_MAIN --> CONFIG["config"]
+    EMAIL_MAIN --> CONFIG
+
+    SLACK_MAIN --> MONITOR["monitor"]
+    SLACK_MAIN --> HANDLER["handler"]
+    SLACK_MAIN --> SLACK["slack"]
+    SLACK_MAIN --> CLICKUP["clickup"]
+    SLACK_MAIN --> HISTORY["history"]
+
+    EMAIL_MAIN --> EMAIL_MONITOR["emailmonitor"]
+    EMAIL_MAIN --> HANDLER
+    EMAIL_MAIN --> GMAIL["gmail"]
+    EMAIL_MAIN --> CLICKUP
+    EMAIL_MAIN --> HISTORY
 
     MONITOR --> DOMAIN["domain"]
     MONITOR --> HANDLER
     MONITOR --> SLACK
+
+    EMAIL_MONITOR --> DOMAIN
+    EMAIL_MONITOR --> HANDLER
+    EMAIL_MONITOR --> GMAIL
 
     HANDLER --> DOMAIN
     HANDLER --> CLICKUP
     HANDLER --> HISTORY
 
     SLACK --> DOMAIN
+    GMAIL --> DOMAIN
     CLICKUP --> DOMAIN
     HISTORY --> DOMAIN
 ```
@@ -272,22 +390,51 @@ forwardHandler := handler.NewForwardHandler(handler.ForwardHandlerConfig{
 })
 ```
 
+### 새 모니터 소스 추가
+
+새로운 메시지 소스(예: Discord, Teams)를 추가하려면:
+
+```go
+// 1. Client 인터페이스 정의 (internal/discord/)
+type Client interface {
+    GetNewMessages(ctx context.Context, since time.Time) ([]*domain.Message, error)
+}
+
+// 2. Service 구현 (internal/discordmonitor/)
+type Service struct {
+    client  discord.Client
+    handler handler.EventHandler
+    // ...
+}
+
+// 3. domain.Message 생성 시 Source 필드 설정
+msg := &domain.Message{
+    Source:    "discord",
+    Text:      content,
+    CreatedAt: time.Now(),
+}
+
+// 4. 엔트리포인트 생성 (cmd/discord-monitor/)
+```
+
 ## 기술 스택
 
 | 영역 | 기술 |
 |------|------|
-| 언어 | Go 1.25+ |
+| 언어 | Go 1.23+ |
 | Slack SDK | [slack-go/slack](https://github.com/slack-go/slack) |
+| IMAP | [emersion/go-imap](https://github.com/emersion/go-imap) |
+| OAuth2 | [golang.org/x/oauth2](https://pkg.go.dev/golang.org/x/oauth2) |
 | HTTP | 표준 라이브러리 `net/http` |
 | 저장소 | 로컬 JSON 파일 |
 | 배포 | 바이너리 / macOS launchd |
 
 ## 비기능 요구사항
 
-| 항목 | 사양 |
-|------|------|
-| 메모리 | ~15-30 MB (일반 사용) |
-| 폴링 간격 | 기본 10초 (설정 가능) |
-| 히스토리 크기 | 기본 100개 (설정 가능) |
-| 타임아웃 | ClickUp API 30초 |
-| 재시작 | launchd 자동 재시작 지원 |
+| 항목 | Slack Monitor | Email Monitor |
+|------|---------------|---------------|
+| 메모리 | ~15-30 MB | ~20-40 MB |
+| 폴링 간격 | 기본 10초 | 기본 30초 |
+| 히스토리 크기 | 기본 100개 | 기본 100개 |
+| 타임아웃 | ClickUp API 30초 | ClickUp API 30초 |
+| 재시작 | launchd 지원 | launchd 지원 |

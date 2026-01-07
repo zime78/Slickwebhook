@@ -54,6 +54,7 @@ func (c *SlackClient) GetChannelHistory(ctx context.Context, channelID string, o
 		createdAt := parseSlackTimestamp(msg.Timestamp)
 
 		messages = append(messages, &domain.Message{
+			Source:    "slack",
 			Timestamp: msg.Timestamp,
 			UserID:    msg.User,
 			BotID:     msg.BotID,
