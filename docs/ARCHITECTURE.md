@@ -235,7 +235,9 @@ type Client interface {
 
 - OAuth2 인증 (XOAUTH2)
 - IMAP 기반 이메일 조회
-- 발신자 필터링 (`FilterFrom`)
+- 발신자 필터링 (`FilterFrom`) - 포함 필터
+- 발신자 제외 필터링 (`FilterExclude`) - 특정 발신자 제외
+- 제목 제외 필터링 (`FilterExcludeSubject`) - 특정 제목 키워드 제외
 - 라벨 필터링 (`FilterLabel`, 기본: INBOX)
 
 #### ClickUp Client (`internal/clickup/`)

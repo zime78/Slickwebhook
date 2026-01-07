@@ -24,13 +24,14 @@ import (
 
 // Config는 Gmail 클라이언트 설정입니다.
 type Config struct {
-	ClientID      string
-	ClientSecret  string
-	RefreshToken  string
-	UserEmail     string
-	FilterFrom    []string
-	FilterExclude []string // 제외 필터 (발신자)
-	FilterLabel   string
+	ClientID             string
+	ClientSecret         string
+	RefreshToken         string
+	UserEmail            string
+	FilterFrom           []string
+	FilterExclude        []string // 제외 필터 (발신자)
+	FilterExcludeSubject []string // 제외 필터 (제목)
+	FilterLabel          string
 }
 
 // Client는 Gmail IMAP API와 상호작용하는 인터페이스입니다.
@@ -170,6 +171,11 @@ func (c *GmailClient) GetNewMessages(ctx context.Context, since time.Time) ([]*d
 
 		// FilterExclude가 설정되어 있으면 제외 필터링
 		if len(c.config.FilterExclude) > 0 && c.matchesExcludeFilter(fromAddr) {
+			continue
+		}
+
+		// FilterExcludeSubject가 설정되어 있으면 제목 기반 제외 필터링
+		if len(c.config.FilterExcludeSubject) > 0 && c.matchesExcludeSubjectFilter(msg.Envelope.Subject) {
 			continue
 		}
 
@@ -410,6 +416,17 @@ func (c *GmailClient) matchesExcludeFilter(from string) bool {
 	from = strings.ToLower(from)
 	for _, filter := range c.config.FilterExclude {
 		if strings.Contains(from, strings.ToLower(filter)) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesExcludeSubjectFilter는 제목이 제외 필터에 매칭되는지 확인합니다.
+func (c *GmailClient) matchesExcludeSubjectFilter(subject string) bool {
+	subject = strings.ToLower(subject)
+	for _, filter := range c.config.FilterExcludeSubject {
+		if strings.Contains(subject, strings.ToLower(filter)) {
 			return true
 		}
 	}

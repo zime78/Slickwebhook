@@ -166,6 +166,7 @@ SlickWebhook/
 | `POLL_INTERVAL` | | 폴링 간격 (기본: `30s`) |
 | `FILTER_FROM` | | 필터링할 발신자 (콤마 구분) |
 | `FILTER_EXCLUDE` | | 제외할 발신자 (콤마 구분, 비어있으면 무시) |
+| `FILTER_EXCLUDE_SUBJECT` | | 제외할 제목 키워드 (콤마 구분, 비어있으면 무시) |
 | `FILTER_LABEL` | | 모니터링할 라벨 (기본: `INBOX`) |
 
 ### 공통 (ClickUp 연동)
