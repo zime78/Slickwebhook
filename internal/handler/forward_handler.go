@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/zime/slickwebhook/internal/clickup"
@@ -80,6 +81,12 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 		}
 	}
 
+	// 상태 변경 이메일은 필터링 (Jira 상태 변경 알림 제외)
+	if h.isStatusChangeEmail(msg) {
+		h.logger.Printf("[FORWARD] ⏭️ 상태 변경 이메일 스킵: %s\n", msg.Subject)
+		return
+	}
+
 	h.logger.Printf("[FORWARD] 📤 ClickUp으로 전송 중... (BotID: %s)\n", msg.BotID)
 
 	// ClickUp 태스크 생성 (30초 타임아웃)
@@ -129,4 +136,18 @@ func (h *ChainHandler) Handle(event *domain.Event) {
 	for _, handler := range h.handlers {
 		handler.Handle(event)
 	}
+}
+
+// isStatusChangeEmail은 Jira 상태 변경 이메일인지 확인합니다.
+// 이메일 본문에 "상태 변경:" 패턴이 있으면 상태 변경 이메일로 판단합니다.
+func (h *ForwardHandler) isStatusChangeEmail(msg *domain.Message) bool {
+	// 이메일 소스가 아니면 상태 변경 필터링 불필요
+	if msg.Source != "email" {
+		return false
+	}
+	// 본문에서 상태 변경 패턴 확인
+	if strings.Contains(msg.Text, "상태 변경:") {
+		return true
+	}
+	return false
 }

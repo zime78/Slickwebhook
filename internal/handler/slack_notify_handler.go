@@ -67,6 +67,12 @@ func (h *SlackNotifyHandler) Handle(event *domain.Event) {
 		return
 	}
 
+	// 상태 변경 이메일은 필터링 (Jira 상태 변경 알림 제외)
+	if h.isStatusChangeEmail(msg) {
+		h.logger.Printf("[SLACK_NOTIFY] ⏭️ 상태 변경 이메일 스킵: %s\n", msg.Subject)
+		return
+	}
+
 	h.logger.Printf("[SLACK_NOTIFY] 📤 Slack 알림 전송 중...\n")
 
 	blocks := h.buildEmailBlocks(msg)
@@ -180,4 +186,14 @@ func truncateTextForSlack(text string, maxLen int) string {
 		return text
 	}
 	return text[:maxLen] + "..."
+}
+
+// isStatusChangeEmail은 Jira 상태 변경 이메일인지 확인합니다.
+// 이메일 본문에 "상태 변경:" 패턴이 있으면 상태 변경 이메일로 판단합니다.
+func (h *SlackNotifyHandler) isStatusChangeEmail(msg *domain.Message) bool {
+	// 본문에서 상태 변경 패턴 확인
+	if strings.Contains(msg.Text, "상태 변경:") {
+		return true
+	}
+	return false
 }
