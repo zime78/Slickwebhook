@@ -1,49 +1,56 @@
 package emailmonitor
 
 import (
-	"context"
-	"log"
-	"sync"
-	"time"
+"context"
+"log"
+"sync"
+"time"
 
-	"github.com/zime/slickwebhook/internal/domain"
-	"github.com/zime/slickwebhook/internal/gmail"
-	"github.com/zime/slickwebhook/internal/handler"
+"github.com/zime/slickwebhook/internal/domain"
+"github.com/zime/slickwebhook/internal/gmail"
+"github.com/zime/slickwebhook/internal/handler"
+"github.com/zime/slickwebhook/internal/store"
 )
 
 // Config는 Email 모니터 서비스 설정입니다.
 type Config struct {
-	// PollInterval은 폴링 간격입니다 (기본값: 30초)
-	PollInterval time.Duration
+	PollInterval     time.Duration
+	LookbackDuration time.Duration
+	RetentionDays    int // DB 보관 기간 (기본: 90일)
 }
 
-// DefaultPollInterval은 기본 폴링 간격입니다.
 const DefaultPollInterval = 30 * time.Second
+const DefaultRetentionDays = 90
 
 // Service는 Email 모니터링 서비스입니다.
 type Service struct {
-	config   Config
-	client   gmail.Client
-	handler  handler.EventHandler
-	logger   *log.Logger
-	lastTime time.Time
-	mu       sync.Mutex
-	stopChan chan struct{}
-	running  bool
+	config         Config
+	client         gmail.Client
+	handler        handler.EventHandler
+	processedStore store.ProcessedStore
+	logger         *log.Logger
+	lastTime       time.Time
+	mu             sync.Mutex
+	stopChan       chan struct{}
+	running        bool
 }
 
 // NewService는 새로운 Email 모니터 서비스를 생성합니다.
-func NewService(config Config, client gmail.Client, eventHandler handler.EventHandler, logger *log.Logger) *Service {
+func NewService(config Config, client gmail.Client, eventHandler handler.EventHandler, processedStore store.ProcessedStore, logger *log.Logger) *Service {
 	if config.PollInterval == 0 {
 		config.PollInterval = DefaultPollInterval
 	}
+	if config.RetentionDays == 0 {
+		config.RetentionDays = DefaultRetentionDays
+	}
 
 	return &Service{
-		config:   config,
-		client:   client,
-		handler:  eventHandler,
-		logger:   logger,
-		stopChan: make(chan struct{}),
+		config:         config,
+		client:         client,
+		handler:        eventHandler,
+		processedStore: processedStore,
+		logger:         logger,
+		stopChan:       make(chan struct{}),
 	}
 }
 
@@ -60,11 +67,29 @@ func (s *Service) Start(ctx context.Context) error {
 
 	s.logger.Printf("[INFO] 📧 Email 모니터 시작 (간격: %v)\n", s.config.PollInterval)
 
-	// 초기 시간을 현재로 설정 (과거 이메일 무시)
-	s.lastTime = time.Now()
+	if s.config.LookbackDuration > 0 {
+		s.lastTime = time.Now().Add(-s.config.LookbackDuration)
+		s.logger.Printf("[INFO] 📅 과거 %v 이내 이메일부터 모니터링\n", s.config.LookbackDuration)
+	} else {
+		s.lastTime = time.Now()
+		s.logger.Println("[INFO] 📅 프로그램 시작 시점부터 모니터링")
+	}
+
+	// DB 레코드 수 출력
+	if count, err := s.processedStore.GetCount(); err == nil {
+		s.logger.Printf("[INFO] 💾 처리된 이메일 DB: %d개 레코드\n", count)
+	}
+
+	// 시작 시 오래된 레코드 정리
+	if deleted, err := s.processedStore.Cleanup(s.config.RetentionDays); err == nil && deleted > 0 {
+		s.logger.Printf("[INFO] 🧹 %d개의 오래된 레코드 정리됨 (%d일 이전)\n", deleted, s.config.RetentionDays)
+	}
 
 	ticker := time.NewTicker(s.config.PollInterval)
 	defer ticker.Stop()
+
+	// 시작 직후 첫 체크 수행
+	s.checkForNewEmails(ctx)
 
 	for {
 		select {
@@ -80,7 +105,6 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 }
 
-// Stop은 모니터링을 중지합니다.
 func (s *Service) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -93,7 +117,6 @@ func (s *Service) Stop() {
 	s.running = false
 }
 
-// IsRunning은 서비스가 실행 중인지 확인합니다.
 func (s *Service) IsRunning() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -118,15 +141,48 @@ func (s *Service) checkForNewEmails(ctx context.Context) {
 		return
 	}
 
-	s.logger.Printf("[INFO] 📬 %d개의 새 이메일 발견\n", len(messages))
-
-	// 메시지를 처리
-	var latestTime time.Time
+	// DB 기반 중복 제거
+	var newMessages []*domain.Message
 	for _, msg := range messages {
+		// Message-ID 또는 UID 기반 중복 체크
+		id := msg.MessageID
+		if id == "" {
+			id = msg.Timestamp // UID 사용
+		}
+
+		processed, err := s.processedStore.IsProcessed(id)
+		if err != nil {
+			s.logger.Printf("[WARN] ⚠️ 중복 체크 실패: %v\n", err)
+			continue
+		}
+
+		if !processed {
+			newMessages = append(newMessages, msg)
+		}
+	}
+
+	if len(newMessages) == 0 {
+		s.logger.Printf("[INFO] ✅ 체크 완료 - 새 이메일 없음 (총 %d개 이미 처리됨)\n", len(messages))
+		return
+	}
+
+	s.logger.Printf("[INFO] 📬 %d개의 새 이메일 발견 (총 %d개 중)\n", len(newMessages), len(messages))
+
+	// 새 메시지 처리
+	var latestTime time.Time
+	for _, msg := range newMessages {
 		event := domain.NewMessageEvent(msg)
 		s.handler.Handle(event)
 
-		// 가장 최신 시간 추적
+		// 처리됨으로 마킹
+		id := msg.MessageID
+		if id == "" {
+			id = msg.Timestamp
+		}
+		if err := s.processedStore.MarkProcessed(id, msg.Subject); err != nil {
+			s.logger.Printf("[WARN] ⚠️ 처리 마킹 실패: %v\n", err)
+		}
+
 		if msg.CreatedAt.After(latestTime) {
 			latestTime = msg.CreatedAt
 		}
