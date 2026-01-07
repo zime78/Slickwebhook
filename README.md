@@ -175,6 +175,7 @@ SlickWebhook/
 |--------|:----:|------|
 | `CLICKUP_API_TOKEN` | | ClickUp API 토큰 |
 | `CLICKUP_LIST_ID` | | 태스크 생성할 리스트 ID |
+| `JIRA_BASE_URL` | | Jira 이슈 링크 생성용 (예: `https://example.atlassian.net`) |
 | `HISTORY_MAX_SIZE` | | 히스토리 최대 개수 (기본: `100`) |
 
 ---

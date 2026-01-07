@@ -35,6 +35,7 @@ flowchart TB
         EMAIL_CONFIG["config.email.ini"]
         EMAIL_SERVICE["emailmonitor.Service"]
         GMAIL_CLIENT["gmail.Client"]
+        PROCESSED_STORE["store.ProcessedStore"]
     end
 
     subgraph SharedComponents["공유 컴포넌트"]
@@ -51,6 +52,7 @@ flowchart TB
     subgraph Storage["로컬 저장소"]
         SLACK_HISTORY[("history.json")]
         EMAIL_HISTORY[("email_history.json")]
+        PROCESSED_DB[("processed_emails.db")]
     end
 
     %% Slack Monitor 흐름
@@ -68,6 +70,8 @@ flowchart TB
     GMAIL_CLIENT <--> GMAIL
     EMAIL_SERVICE --> DOMAIN
     EMAIL_SERVICE --> CHAIN
+    EMAIL_SERVICE --> PROCESSED_STORE
+    PROCESSED_STORE --> PROCESSED_DB
 
     %% 공유 핸들러 흐름
     CHAIN --> LOG
@@ -105,6 +109,7 @@ flowchart TB
         CLICKUP["clickup.Client"]
         CONFIG["config.Loader"]
         HISTORY["history.Store"]
+        PROCESSED["store.ProcessedStore"]
     end
 
     SLACK_MAIN --> SLACK_MONITOR
@@ -117,6 +122,7 @@ flowchart TB
     EVENT --> MESSAGE
     SLACK_MONITOR -.->|interface| SLACK
     EMAIL_MONITOR -.->|interface| GMAIL
+    EMAIL_MONITOR -.->|interface| PROCESSED
     HANDLER -.->|interface| CLICKUP
     HANDLER -.->|interface| HISTORY
     SLACK_MAIN -.->|uses| CONFIG
@@ -190,9 +196,21 @@ stateDiagram-v2
 **주요 책임:**
 
 - 폴링 기반 Gmail 모니터링 (IMAP)
-- 마지막 시간 관리 (중복 방지)
+- ProcessedStore 기반 중복 방지 (SQLite DB)
 - 이벤트 생성 및 핸들러 위임
-- 발신자/라벨 필터링 지원
+- 발신자/라벨/제목 필터링 지원
+
+**설정 옵션:**
+
+| 환경변수 | 설명 | 기본값 |
+|----------|------|--------|
+| `POLL_INTERVAL` | 폴링 간격 | 30초 |
+| `LOOKBACK_DURATION` | 시작 시 과거 이메일 조회 기간 | 0 (현재 시점부터) |
+| `RETENTION_DAYS` | 처리된 이메일 DB 보관 기간 | 90일 |
+| `FILTER_FROM` | 포함할 발신자 (콤마 구분) | - |
+| `FILTER_EXCLUDE` | 제외할 발신자 (콤마 구분) | - |
+| `FILTER_EXCLUDE_SUBJECT` | 제외할 제목 키워드 (콤마 구분) | - |
+| `FILTER_LABEL` | 모니터링할 라벨 | INBOX |
 
 ### 4. 이벤트 핸들러 (`internal/handler/`)
 
@@ -260,6 +278,38 @@ type Store interface {
 - **구현체**: `FileStore` (JSON 파일 기반)
 - **제한**: `HISTORY_MAX_SIZE` (기본 100개, FIFO)
 
+### 7. 처리된 메시지 저장소 (`internal/store/`)
+
+Email Monitor 전용 SQLite 기반 중복 방지 저장소입니다.
+
+```go
+type ProcessedStore interface {
+    IsProcessed(messageID string) (bool, error)
+    MarkProcessed(messageID string, subject string) error
+    GetCount() (int, error)
+    Cleanup(retentionDays int) (int, error)
+    Close() error
+}
+```
+
+**특징:**
+
+- SQLite 기반 영구 저장소 (`processed_emails.db`)
+- Message-ID 기반 중복 체크
+- 자동 레코드 정리 (`RETENTION_DAYS`, 기본 90일)
+- 스레드 세이프 (sync.RWMutex)
+
+**Email Monitor 중복 방지 흐름:**
+
+```mermaid
+flowchart LR
+    A[새 이메일] --> B{IsProcessed?}
+    B -->|Yes| C[스킵]
+    B -->|No| D[이벤트 처리]
+    D --> E[MarkProcessed]
+    E --> F[DB 저장]
+```
+
 ## 데이터 흐름
 
 ### 메시지 처리 시퀀스
@@ -309,10 +359,10 @@ flowchart LR
 
 **설정 우선순위**: 설정 파일 → 환경변수
 
-| 서비스 | 설정 파일 | 히스토리 파일 |
-|--------|-----------|---------------|
+| 서비스 | 설정 파일 | 저장소 파일 |
+|--------|-----------|-------------|
 | Slack Monitor | `config.ini` | `history.json` |
-| Email Monitor | `config.email.ini` | `email_history.json` |
+| Email Monitor | `config.email.ini` | `email_history.json`, `processed_emails.db` |
 
 ## 의존성 그래프
 
@@ -337,6 +387,7 @@ flowchart TD
     EMAIL_MAIN --> GMAIL["gmail"]
     EMAIL_MAIN --> CLICKUP
     EMAIL_MAIN --> HISTORY
+    EMAIL_MAIN --> STORE["store"]
 
     MONITOR --> DOMAIN["domain"]
     MONITOR --> HANDLER
@@ -345,6 +396,7 @@ flowchart TD
     EMAIL_MONITOR --> DOMAIN
     EMAIL_MONITOR --> HANDLER
     EMAIL_MONITOR --> GMAIL
+    EMAIL_MONITOR --> STORE
 
     HANDLER --> DOMAIN
     HANDLER --> CLICKUP
@@ -427,8 +479,9 @@ msg := &domain.Message{
 | Slack SDK | [slack-go/slack](https://github.com/slack-go/slack) |
 | IMAP | [emersion/go-imap](https://github.com/emersion/go-imap) |
 | OAuth2 | [golang.org/x/oauth2](https://pkg.go.dev/golang.org/x/oauth2) |
+| SQLite | [mattn/go-sqlite3](https://github.com/mattn/go-sqlite3) |
 | HTTP | 표준 라이브러리 `net/http` |
-| 저장소 | 로컬 JSON 파일 |
+| 저장소 | 로컬 JSON 파일, SQLite DB |
 | 배포 | 바이너리 / macOS launchd |
 
 ## 비기능 요구사항

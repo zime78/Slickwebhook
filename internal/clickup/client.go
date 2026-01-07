@@ -1,15 +1,17 @@
 package clickup
 
 import (
-"bytes"
-"context"
-"encoding/json"
-"fmt"
-"io"
-"net/http"
-"time"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
 
-"github.com/zime/slickwebhook/internal/domain"
+	"github.com/zime/slickwebhook/internal/domain"
 )
 
 // Client는 ClickUp API와 상호작용하는 인터페이스입니다.
@@ -26,9 +28,10 @@ type TaskResponse struct {
 
 // Config는 ClickUp 클라이언트 설정입니다.
 type Config struct {
-	APIToken   string
-	ListID     string
-	AssigneeID int
+	APIToken    string
+	ListID      string
+	AssigneeID  int
+	JiraBaseURL string // Jira 이슈 링크용 (예: https://example.atlassian.net)
 }
 
 // ClickUpClient는 실제 ClickUp API 클라이언트입니다.
@@ -124,27 +127,75 @@ func (c *ClickUpClient) formatEmailTask(msg *domain.Message) (name, description 
 		name = fmt.Sprintf("[Email] %s", truncateText(msg.Text, 50))
 	}
 
+	// Jira 이슈 키 추출 및 링크 생성
+	jiraLinks := c.extractJiraLinks(msg.Subject, msg.Text)
+
 	// 설명 생성
-	description = fmt.Sprintf(`📧 이메일 자동 수집
+	var descBuilder strings.Builder
+	descBuilder.WriteString(fmt.Sprintf(`📧 이메일 자동 수집
 
 **발신자:** %s
 **제목:** %s
-**수신 시간:** %s
+**수신 시간:** %s`,
+		msg.From,
+		msg.Subject,
+		msg.CreatedAt.Format("2006-01-02 15:04:05"),
+	))
+
+	// Jira 링크가 있으면 추가
+	if jiraLinks != "" {
+		descBuilder.WriteString(fmt.Sprintf("\n**🔗 Jira 이슈:** %s", jiraLinks))
+	}
+
+	descBuilder.WriteString(fmt.Sprintf(`
 
 ---
 
 %s
 
 ---
-*이 태스크는 Email Monitor에 의해 자동 생성되었습니다.*`,
-msg.From,
-msg.Subject,
-msg.CreatedAt.Format("2006-01-02 15:04:05"),
-msg.Text,
-)
+*이 태스크는 Email Monitor에 의해 자동 생성되었습니다.*`, msg.Text))
 
+	description = descBuilder.String()
 	tags = []string{"auto-generated", "email"}
 	return
+}
+
+// extractJiraLinks는 텍스트에서 Jira 이슈 키를 추출하고 링크를 생성합니다.
+func (c *ClickUpClient) extractJiraLinks(subject, body string) string {
+	if c.config.JiraBaseURL == "" {
+		return ""
+	}
+
+	// Jira 이슈 키 패턴 (예: ITSM-1234, PROJ-123)
+	issuePattern := regexp.MustCompile(`[A-Z][A-Z0-9]+-\d+`)
+
+	// 제목과 본문에서 이슈 키 추출
+	combinedText := subject + " " + body
+	matches := issuePattern.FindAllString(combinedText, -1)
+
+	if len(matches) == 0 {
+		return ""
+	}
+
+	// 중복 제거
+	seen := make(map[string]bool)
+	var uniqueKeys []string
+	for _, key := range matches {
+		if !seen[key] {
+			seen[key] = true
+			uniqueKeys = append(uniqueKeys, key)
+		}
+	}
+
+	// 링크 생성 (마크다운 형식)
+	baseURL := strings.TrimSuffix(c.config.JiraBaseURL, "/")
+	var links []string
+	for _, key := range uniqueKeys {
+		links = append(links, fmt.Sprintf("[%s](%s/browse/%s)", key, baseURL, key))
+	}
+
+	return strings.Join(links, ", ")
 }
 
 // formatSlackTask는 Slack용 태스크 포맷을 생성합니다.
@@ -164,12 +215,12 @@ func (c *ClickUpClient) formatSlackTask(msg *domain.Message) (name, description 
 
 ---
 *이 태스크는 SlickWebhook 모니터에 의해 자동 생성되었습니다.*`,
-msg.Text,
-msg.ChannelID,
-msg.UserID,
-msg.CreatedAt.Format(time.RFC3339),
-msg.Timestamp,
-)
+		msg.Text,
+		msg.ChannelID,
+		msg.UserID,
+		msg.CreatedAt.Format(time.RFC3339),
+		msg.Timestamp,
+	)
 
 	tags = []string{"auto-generated"}
 	return
