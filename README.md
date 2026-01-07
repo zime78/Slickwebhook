@@ -12,8 +12,9 @@ Slack 채널 및 Email(Gmail) 모니터링과 ClickUp 자동 연동 도구입니
 |------|:-------------:|:-------------:|
 | 메시지 감지 | ✅ 채널 폴링 | ✅ IMAP 폴링 |
 | ClickUp 연동 | ✅ | ✅ |
-| 히스토리 관리 | ✅ | ✅ |
+| 히스토리 관리 | ✅ | ✅ (SQLite) |
 | 발신자 필터 | ✅ 봇 ID | ✅ 이메일 주소 |
+| Slack 알림 | - | ✅ (선택) |
 | 크로스 플랫폼 | ✅ | ✅ |
 
 ---
@@ -33,40 +34,55 @@ Slack 채널 및 Email(Gmail) 모니터링과 ClickUp 자동 연동 도구입니
          │  (공통 이벤트 처리)  │
          └──────────┬──────────┘
                     │
-         ┌──────────▼──────────┐
-         │   ClickUp Client    │
-         │   (태스크 생성)      │
-         └─────────────────────┘
+    ┌───────────────┼───────────────┐
+    │               │               │
+    ▼               ▼               ▼
+ ClickUp        History       Slack 알림
+ (Task 생성)   (JSON/SQLite)   (Email 전용)
 ```
+
+> 📖 상세 아키텍처는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)를 참고하세요.
 
 ---
 
 ## ⚙️ 빠른 시작
 
-### Slack Monitor
+### 1. 설정 파일 생성
+
+```bash
+# Slack Monitor 설정
+cp _config.ini config.ini
+
+# Email Monitor 설정
+cp _config.email.ini config.email.ini
+```
+
+> ⚠️ `config.ini`와 `config.email.ini`는 `.gitignore`에 포함되어 있어 Git에 커밋되지 않습니다. 보안을 위해 반드시 템플릿 파일을 복사하여 사용하세요.
+
+### 2. Slack Monitor
 
 ```bash
 # 빌드
 make build-slack
 
-# 설정 (config.ini)
+# 설정 편집 (config.ini)
 SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_CHANNEL_ID=C0A5ZTLNWA3
+SLACK_CHANNEL_ID=YOUR_CHANNEL_ID
 POLL_INTERVAL=10s
 CLICKUP_API_TOKEN=pk_your_token
-CLICKUP_LIST_ID=901413896178
+CLICKUP_LIST_ID=your_list_id
 
 # 실행
 ./slack-monitor
 ```
 
-### Email Monitor
+### 3. Email Monitor
 
 ```bash
 # 빌드
 make build-email
 
-# 설정 (config.email.ini)
+# 설정 편집 (config.email.ini)
 GMAIL_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GMAIL_CLIENT_SECRET=your-client-secret
 GMAIL_REFRESH_TOKEN=your-refresh-token
@@ -74,7 +90,7 @@ GMAIL_USER_EMAIL=your-email@gmail.com
 POLL_INTERVAL=30s
 FILTER_FROM=jira@atlassian.com
 CLICKUP_API_TOKEN=pk_your_token
-CLICKUP_LIST_ID=901413896178
+CLICKUP_LIST_ID=your_list_id
 
 # 실행
 ./email-monitor
@@ -98,13 +114,19 @@ SlickWebhook/
 │   ├── config/                # 설정 로더 (공통)
 │   ├── domain/                # 도메인 모델 (공통)
 │   ├── handler/               # 이벤트 핸들러 (공통)
-│   ├── history/               # 히스토리 저장소 (공통)
+│   ├── history/               # 히스토리 저장소 (JSON)
+│   ├── store/                 # 처리된 메시지 저장소 (SQLite)
 │   ├── monitor/               # Slack 모니터 서비스
 │   ├── slack/                 # Slack API 클라이언트
 │   ├── emailmonitor/          # Email 모니터 서비스
 │   └── gmail/                 # Gmail IMAP 클라이언트
-├── config.ini                 # Slack Monitor 설정
-├── config.email.ini           # Email Monitor 설정
+├── docs/                      # 문서
+│   ├── ARCHITECTURE.md        # 아키텍처 문서
+│   └── CONTRIBUTING.md        # 기여 가이드
+├── scripts/                   # 유틸리티 스크립트
+│   └── com.slickwebhook.monitor.plist  # macOS launchd 설정
+├── _config.ini                # Slack Monitor 설정 템플릿
+├── _config.email.ini          # Email Monitor 설정 템플릿
 ├── Makefile                   # 빌드/테스트 명령
 └── go.mod
 ```
@@ -164,10 +186,20 @@ SlickWebhook/
 | `GMAIL_REFRESH_TOKEN` | ✅ | OAuth Refresh Token |
 | `GMAIL_USER_EMAIL` | ✅ | 모니터링할 Gmail 주소 |
 | `POLL_INTERVAL` | | 폴링 간격 (기본: `30s`) |
-| `FILTER_FROM` | | 필터링할 발신자 (콤마 구분) |
-| `FILTER_EXCLUDE` | | 제외할 발신자 (콤마 구분, 비어있으면 무시) |
-| `FILTER_EXCLUDE_SUBJECT` | | 제외할 제목 키워드 (콤마 구분, 비어있으면 무시) |
+| `LOOKBACK_DURATION` | | 시작 시 과거 이메일 조회 기간 (기본: `0`) |
+| `RETENTION_DAYS` | | 처리된 이메일 DB 보관 기간 (기본: `90`) |
+| `FILTER_FROM` | | 포함할 발신자 (콤마 구분) |
+| `FILTER_EXCLUDE` | | 제외할 발신자 (콤마 구분) |
+| `FILTER_EXCLUDE_SUBJECT` | | 제외할 제목 키워드 (콤마 구분) |
 | `FILTER_LABEL` | | 모니터링할 라벨 (기본: `INBOX`) |
+
+### Slack 알림 (Email Monitor 전용)
+
+| 변수명 | 필수 | 설명 |
+|--------|:----:|------|
+| `SLACK_NOTIFY_ENABLED` | | Slack 알림 활성화 (`true`/`false`) |
+| `SLACK_BOT_TOKEN` | | Slack Bot OAuth 토큰 |
+| `SLACK_NOTIFY_CHANNEL` | | 알림 전송 채널 ID |
 
 ### 공통 (ClickUp 연동)
 
@@ -214,3 +246,9 @@ SlickWebhook/
 - [ClickUp API](https://developer.clickup.com/)
 - [slack-go/slack SDK](https://github.com/slack-go/slack)
 - [emersion/go-imap](https://github.com/emersion/go-imap)
+
+---
+
+## 📄 라이선스
+
+이 프로젝트는 개인 사용 목적으로 작성되었습니다.
