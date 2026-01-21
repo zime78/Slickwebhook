@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"regexp"
 	"strings"
@@ -17,6 +18,7 @@ import (
 // Client는 ClickUp API와 상호작용하는 인터페이스입니다.
 type Client interface {
 	CreateTask(ctx context.Context, msg *domain.Message) (*TaskResponse, error)
+	UploadAttachment(ctx context.Context, taskID string, filename string, data []byte) error
 }
 
 // TaskResponse는 ClickUp 태스크 생성 응답입니다.
@@ -264,4 +266,47 @@ func truncateText(text string, maxLen int) string {
 		return text
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+// UploadAttachment는 태스크에 첨부파일을 업로드합니다.
+func (c *ClickUpClient) UploadAttachment(ctx context.Context, taskID string, filename string, data []byte) error {
+	url := fmt.Sprintf("%s/task/%s/attachment", c.baseURL, taskID)
+
+	// multipart form 생성
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	part, err := writer.CreateFormFile("attachment", filename)
+	if err != nil {
+		return fmt.Errorf("form file 생성 실패: %w", err)
+	}
+
+	if _, err := part.Write(data); err != nil {
+		return fmt.Errorf("파일 데이터 쓰기 실패: %w", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("multipart writer 닫기 실패: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, &body)
+	if err != nil {
+		return fmt.Errorf("요청 생성 실패: %w", err)
+	}
+
+	req.Header.Set("Authorization", c.config.APIToken)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("업로드 실패: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("업로드 오류 (status=%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
 }

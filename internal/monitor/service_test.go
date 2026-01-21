@@ -32,6 +32,10 @@ func (m *MockSlackClient) PostMessage(ctx context.Context, channelID string, blo
 	return nil
 }
 
+func (m *MockSlackClient) UploadFile(ctx context.Context, channelID string, filename string, data []byte, comment string) error {
+	return nil // Mock: 항상 성공
+}
+
 // MockEventHandler는 테스트용 이벤트 핸들러입니다.
 type MockEventHandler struct {
 	events []*domain.Event

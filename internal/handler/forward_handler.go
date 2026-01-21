@@ -10,12 +10,15 @@ import (
 	"github.com/zime/slickwebhook/internal/clickup"
 	"github.com/zime/slickwebhook/internal/domain"
 	"github.com/zime/slickwebhook/internal/history"
+	"github.com/zime/slickwebhook/internal/jira"
 	"github.com/zime/slickwebhook/internal/store"
 )
 
 // ForwardJiraClient는 Jira API 클라이언트 인터페이스입니다.
 type ForwardJiraClient interface {
 	GetIssueSummary(ctx context.Context, issueKey string) (string, error)
+	GetIssueDetail(ctx context.Context, issueKey string) (*jira.IssueDetail, error)
+	DownloadAttachment(ctx context.Context, contentURL string) ([]byte, error)
 }
 
 // ForwardHandler는 이벤트를 ClickUp로 전송하고 히스토리를 관리하는 핸들러입니다.
@@ -114,16 +117,54 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 
 	h.logger.Printf("[FORWARD] 📤 ClickUp으로 전송 중... (BotID: %s)\n", msg.BotID)
 
-	// Jira 이메일인 경우 제목을 이슈키 + 이슈타이틀 형식으로 변환
+	// Jira 이메일인 경우 제목을 이슈키 + 이슈타이틀 형식으로 변환 + 본문 재구성
 	processedMsg := msg
-	if msg.Source == "email" && strings.Contains(msg.Subject, "[Jira]") {
+	var imageAttachments []jira.Attachment
+	if msg.Source == "email" && strings.Contains(msg.Subject, "[Jira]") && issueKey != "" {
 		newSubject := h.formatJiraSubjectForClickUp(msg.Subject)
-		if newSubject != msg.Subject {
-			// 메시지 복사본 생성 (원본 수정 방지)
+
+		// Jira 이슈 상세 정보 조회 (본문, 첨부파일)
+		if h.jiraClient != nil {
+			detailCtx, detailCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer detailCancel()
+
+			if detail, err := h.jiraClient.GetIssueDetail(detailCtx, issueKey); err == nil {
+				h.logger.Printf("[FORWARD] ✅ Jira 이슈 상세 조회 성공\n")
+
+				// 이미지 첨부파일 필터링
+				imageAttachments = jira.FilterImageAttachments(detail.Attachments)
+				h.logger.Printf("[FORWARD] 📷 첨부 이미지: %d개\n", len(imageAttachments))
+
+				// 본문 재구성 ([현 결과] → [오류내용], [기대 결과] → [수정요청])
+				urls := make([]string, len(imageAttachments))
+				for i, img := range imageAttachments {
+					urls[i] = img.Content
+				}
+				reformattedDesc := jira.ReformatDescription(detail.Description, urls)
+
+				// 메시지 복사본 생성 (원본 수정 방지)
+				msgCopy := *msg
+				msgCopy.Subject = newSubject
+				msgCopy.Text = reformattedDesc
+				processedMsg = &msgCopy
+				h.logger.Printf("[FORWARD] 🔄 Jira 본문 재구성 완료\n")
+			} else {
+				h.logger.Printf("[FORWARD] ⚠️ Jira 이슈 상세 조회 실패: %v\n", err)
+				// 상세 조회 실패해도 제목 변환은 진행
+				if newSubject != msg.Subject {
+					msgCopy := *msg
+					msgCopy.Subject = newSubject
+					processedMsg = &msgCopy
+				}
+			}
+		} else if newSubject != msg.Subject {
 			msgCopy := *msg
 			msgCopy.Subject = newSubject
 			processedMsg = &msgCopy
-			h.logger.Printf("[FORWARD] 🔄 Jira 제목 변환: %s\n", newSubject)
+		}
+
+		if processedMsg.Subject != msg.Subject {
+			h.logger.Printf("[FORWARD] 🔄 Jira 제목 변환: %s\n", processedMsg.Subject)
 		}
 	}
 
@@ -150,6 +191,11 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 		h.logger.Printf("[FORWARD] ✅ 전송 성공!\n")
 		h.logger.Printf("  - Task ID: %s\n", resp.ID)
 		h.logger.Printf("  - Task URL: %s\n", resp.URL)
+
+		// Jira 첨부 이미지 ClickUp에 업로드
+		if len(imageAttachments) > 0 && h.jiraClient != nil {
+			h.uploadJiraAttachments(ctx, resp.ID, imageAttachments)
+		}
 
 		// Jira 이슈 처리 완료 마킹 (중복 전송 방지)
 		if issueKey != "" && h.jiraIssueStore != nil {
@@ -242,4 +288,25 @@ func (h *ForwardHandler) formatJiraSubjectForClickUp(subject string) string {
 func (h *ForwardHandler) extractJiraIssueKey(text string) string {
 	issueKeyPattern := regexp.MustCompile(`[A-Z][A-Z0-9]+-\d+`)
 	return issueKeyPattern.FindString(text)
+}
+
+// uploadJiraAttachments는 Jira 첨부파일을 ClickUp에 업로드합니다.
+func (h *ForwardHandler) uploadJiraAttachments(ctx context.Context, taskID string, attachments []jira.Attachment) {
+	for _, att := range attachments {
+		h.logger.Printf("[FORWARD] 📤 이미지 업로드 중: %s\n", att.Filename)
+
+		// Jira에서 이미지 다운로드
+		data, err := h.jiraClient.DownloadAttachment(ctx, att.Content)
+		if err != nil {
+			h.logger.Printf("[FORWARD] ⚠️ 이미지 다운로드 실패 (%s): %v\n", att.Filename, err)
+			continue
+		}
+
+		// ClickUp에 업로드
+		if err := h.clickupClient.UploadAttachment(ctx, taskID, att.Filename, data); err != nil {
+			h.logger.Printf("[FORWARD] ⚠️ 이미지 업로드 실패 (%s): %v\n", att.Filename, err)
+		} else {
+			h.logger.Printf("[FORWARD] ✅ 이미지 업로드 성공: %s\n", att.Filename)
+		}
+	}
 }

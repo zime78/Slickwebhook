@@ -1,15 +1,15 @@
 package emailmonitor
 
 import (
-"context"
-"log"
-"sync"
-"time"
+	"context"
+	"log"
+	"sync"
+	"time"
 
-"github.com/zime/slickwebhook/internal/domain"
-"github.com/zime/slickwebhook/internal/gmail"
-"github.com/zime/slickwebhook/internal/handler"
-"github.com/zime/slickwebhook/internal/store"
+	"github.com/zime/slickwebhook/internal/domain"
+	"github.com/zime/slickwebhook/internal/gmail"
+	"github.com/zime/slickwebhook/internal/handler"
+	"github.com/zime/slickwebhook/internal/store"
 )
 
 // Config는 Email 모니터 서비스 설정입니다.
@@ -21,6 +21,7 @@ type Config struct {
 
 const DefaultPollInterval = 30 * time.Second
 const DefaultRetentionDays = 90
+const Version = "1.1.0" // Jira 본문 재구성 + 이미지 업로드 기능 추가
 
 // Service는 Email 모니터링 서비스입니다.
 type Service struct {
@@ -65,7 +66,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.stopChan = make(chan struct{})
 	s.mu.Unlock()
 
-	s.logger.Printf("[INFO] 📧 Email 모니터 시작 (간격: %v)\n", s.config.PollInterval)
+	s.logger.Printf("[INFO] 📧 서비스 시작 (폴링 간격: %v)\n", s.config.PollInterval)
 
 	if s.config.LookbackDuration > 0 {
 		s.lastTime = time.Now().Add(-s.config.LookbackDuration)

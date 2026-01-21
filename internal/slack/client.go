@@ -18,6 +18,9 @@ type Client interface {
 	// PostMessage는 채널에 메시지를 전송합니다.
 	// blocks를 사용하여 Block Kit 형식의 메시지를 보낼 수 있습니다.
 	PostMessage(ctx context.Context, channelID string, blocks []slack.Block, text string) error
+
+	// UploadFile은 채널에 파일을 업로드합니다.
+	UploadFile(ctx context.Context, channelID string, filename string, data []byte, comment string) error
 }
 
 // SlackClient는 실제 Slack API 클라이언트를 래핑합니다.
@@ -100,5 +103,16 @@ func (c *SlackClient) PostMessage(ctx context.Context, channelID string, blocks 
 	}
 
 	_, _, err := c.api.PostMessageContext(ctx, channelID, options...)
+	return err
+}
+
+// UploadFile은 채널에 파일을 업로드합니다.
+func (c *SlackClient) UploadFile(ctx context.Context, channelID string, filename string, data []byte, comment string) error {
+	_, err := c.api.UploadFileContext(ctx, slack.FileUploadParameters{
+		Channels:       []string{channelID},
+		Filename:       filename,
+		Content:        string(data),
+		InitialComment: comment,
+	})
 	return err
 }
