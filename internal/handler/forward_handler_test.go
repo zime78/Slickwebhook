@@ -33,6 +33,10 @@ func (m *MockClickUpClient) CreateTask(ctx context.Context, msg *domain.Message)
 	}, nil
 }
 
+func (m *MockClickUpClient) UploadAttachment(ctx context.Context, taskID string, filename string, data []byte) error {
+	return nil // Mock: 항상 성공
+}
+
 // TestForwardHandler_Handle는 ClickUp 전송을 테스트합니다.
 func TestForwardHandler_Handle(t *testing.T) {
 	var buf bytes.Buffer

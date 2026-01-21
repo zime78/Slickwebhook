@@ -140,3 +140,136 @@ func (c *issueCache) set(issueKey, summary string) {
 		expiresAt: time.Now().Add(c.ttl),
 	}
 }
+
+// Attachment는 Jira 첨부파일 정보입니다.
+type Attachment struct {
+	ID       string `json:"id"`
+	Filename string `json:"filename"`
+	MimeType string `json:"mimeType"`
+	Content  string `json:"content"` // 다운로드 URL
+	Size     int    `json:"size"`
+}
+
+// IssueDetail은 이슈 상세 정보입니다.
+type IssueDetail struct {
+	Key         string
+	Summary     string
+	Description string       // 텍스트로 변환된 본문
+	Attachments []Attachment // 첨부파일 목록
+}
+
+// issueDetailResponse는 Jira API 상세 응답 구조체입니다.
+type issueDetailResponse struct {
+	Key    string `json:"key"`
+	Fields struct {
+		Summary     string          `json:"summary"`
+		Description json.RawMessage `json:"description"` // ADF 형식
+		Attachment  []Attachment    `json:"attachment"`
+	} `json:"fields"`
+}
+
+// GetIssueDetail은 이슈의 상세 정보(본문, 첨부파일)를 가져옵니다.
+func (c *HTTPClient) GetIssueDetail(ctx context.Context, issueKey string) (*IssueDetail, error) {
+	url := fmt.Sprintf("%s/rest/api/3/issue/%s?fields=summary,description,attachment", c.baseURL, issueKey)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("request 생성 실패: %w", err)
+	}
+
+	req.SetBasicAuth(c.email, c.apiToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("API 호출 실패: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API 오류 (status=%d): %s", resp.StatusCode, string(body))
+	}
+
+	var issue issueDetailResponse
+	if err := json.NewDecoder(resp.Body).Decode(&issue); err != nil {
+		return nil, fmt.Errorf("응답 파싱 실패: %w", err)
+	}
+
+	// ADF(Atlassian Document Format)를 텍스트로 변환
+	descText := parseADFToText(issue.Fields.Description)
+
+	return &IssueDetail{
+		Key:         issue.Key,
+		Summary:     issue.Fields.Summary,
+		Description: descText,
+		Attachments: issue.Fields.Attachment,
+	}, nil
+}
+
+// DownloadAttachment는 첨부파일을 다운로드합니다.
+func (c *HTTPClient) DownloadAttachment(ctx context.Context, contentURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, contentURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("request 생성 실패: %w", err)
+	}
+
+	req.SetBasicAuth(c.email, c.apiToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("다운로드 실패: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("다운로드 오류 (status=%d)", resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+// parseADFToText는 Atlassian Document Format을 텍스트로 변환합니다.
+func parseADFToText(adfData json.RawMessage) string {
+	if len(adfData) == 0 {
+		return ""
+	}
+
+	var adf map[string]interface{}
+	if err := json.Unmarshal(adfData, &adf); err != nil {
+		return ""
+	}
+
+	var result string
+	extractText(adf, &result)
+	return result
+}
+
+// extractText는 ADF 노드에서 텍스트를 재귀적으로 추출합니다.
+func extractText(node map[string]interface{}, result *string) {
+	// 텍스트 노드 처리
+	if nodeType, ok := node["type"].(string); ok {
+		if nodeType == "text" {
+			if text, ok := node["text"].(string); ok {
+				*result += text
+			}
+		}
+		// 단락 끝에 줄바꿈 추가
+		if nodeType == "paragraph" || nodeType == "heading" {
+			defer func() { *result += "\n" }()
+		}
+		// 리스트 아이템
+		if nodeType == "listItem" {
+			defer func() { *result += "\n" }()
+		}
+	}
+
+	// 자식 노드 처리
+	if content, ok := node["content"].([]interface{}); ok {
+		for _, child := range content {
+			if childMap, ok := child.(map[string]interface{}); ok {
+				extractText(childMap, result)
+			}
+		}
+	}
+}
