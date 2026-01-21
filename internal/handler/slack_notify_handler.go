@@ -18,13 +18,19 @@ type SlackNotifier interface {
 	PostMessage(ctx context.Context, channelID string, blocks []slack.Block, text string) error
 }
 
+// JiraClient는 Jira API 클라이언트 인터페이스입니다.
+type JiraClient interface {
+	GetIssueSummary(ctx context.Context, issueKey string) (string, error)
+}
+
 // SlackNotifyHandler는 이벤트를 Slack으로 알림 전송하는 핸들러입니다.
 type SlackNotifyHandler struct {
 	client      SlackNotifier
 	channelID   string
 	logger      *log.Logger
 	enabled     bool
-	jiraBaseURL string // Jira 이슈 링크용 (예: https://example.atlassian.net)
+	jiraBaseURL string     // Jira 이슈 링크용 (예: https://example.atlassian.net)
+	jiraClient  JiraClient // Jira API 클라이언트 (이슈 타이틀 조회용)
 }
 
 // SlackNotifyHandlerConfig는 SlackNotifyHandler 설정입니다.
@@ -33,7 +39,8 @@ type SlackNotifyHandlerConfig struct {
 	ChannelID   string
 	Logger      *log.Logger
 	Enabled     bool
-	JiraBaseURL string // Jira 이슈 링크용 (예: https://example.atlassian.net)
+	JiraBaseURL string     // Jira 이슈 링크용 (예: https://example.atlassian.net)
+	JiraClient  JiraClient // Jira API 클라이언트 (이슈 타이틀 조회용)
 }
 
 // NewSlackNotifyHandler는 새로운 SlackNotifyHandler를 생성합니다.
@@ -44,6 +51,7 @@ func NewSlackNotifyHandler(config SlackNotifyHandlerConfig) *SlackNotifyHandler 
 		logger:      config.Logger,
 		enabled:     config.Enabled,
 		jiraBaseURL: config.JiraBaseURL,
+		jiraClient:  config.JiraClient,
 	}
 }
 
@@ -98,10 +106,16 @@ func (h *SlackNotifyHandler) buildEmailBlocks(msg *domain.Message) []slack.Block
 	blocks = append(blocks, slack.NewHeaderBlock(headerText))
 
 	// 2. 메타 정보 Section Block
+	// Jira 이메일인 경우 제목을 이슈키 + 이슈타이틀 형식으로 변환
+	displaySubject := msg.Subject
+	if strings.Contains(msg.Subject, "[Jira]") {
+		displaySubject = h.formatJiraSubjectWithAPI(msg.Subject)
+	}
+
 	metaText := fmt.Sprintf(
 		"*발신자:* %s\n*제목:* %s\n*시간:* %s",
 		escapeSlackText(msg.From),
-		escapeSlackText(msg.Subject),
+		escapeSlackText(displaySubject),
 		msg.CreatedAt.Format("2006-01-02 15:04:05"),
 	)
 
@@ -186,6 +200,62 @@ func truncateTextForSlack(text string, maxLen int) string {
 		return text
 	}
 	return text[:maxLen] + "..."
+}
+
+// extractJiraIssueTitle은 이메일 본문에서 Jira 이슈 타이틀을 추출합니다.
+// 패턴: "[프로젝트] 작업 관리 / ISSUE-KEY" 다음 줄이 이슈 타이틀입니다.
+func extractJiraIssueTitle(text string) string {
+	// 이슈 키 패턴 (예: ITSM-5052)
+	issueKeyPattern := regexp.MustCompile(`[A-Z][A-Z0-9]+-\d+`)
+
+	// 줄 단위로 분리
+	lines := strings.Split(text, "\n")
+
+	for i, line := range lines {
+		// "작업 관리 / ISSUE-KEY" 패턴 찾기
+		if strings.Contains(line, "작업 관리") && issueKeyPattern.MatchString(line) {
+			// 다음 줄이 이슈 타이틀
+			if i+1 < len(lines) {
+				title := strings.TrimSpace(lines[i+1])
+				if title != "" {
+					return title
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// formatJiraSubjectWithAPI는 Jira API를 사용하여 이슈 타이틀을 조회하고 제목을 변환합니다.
+func (h *SlackNotifyHandler) formatJiraSubjectWithAPI(subject string) string {
+	// 이슈 키 추출
+	issueKeyPattern := regexp.MustCompile(`[A-Z][A-Z0-9]+-\d+`)
+	issueKey := issueKeyPattern.FindString(subject)
+
+	if issueKey == "" {
+		return subject
+	}
+
+	// Jira 클라이언트가 없으면 원래 제목 반환
+	if h.jiraClient == nil {
+		h.logger.Printf("[SLACK_NOTIFY] ⚠️ Jira 클라이언트가 설정되지 않음, 원래 제목 사용\n")
+		return subject
+	}
+
+	// Jira API로 이슈 타이틀 조회
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	issueTitle, err := h.jiraClient.GetIssueSummary(ctx, issueKey)
+	if err != nil {
+		h.logger.Printf("[SLACK_NOTIFY] ⚠️ Jira 이슈 조회 실패 (%s): %v\n", issueKey, err)
+		return subject
+	}
+
+	// "ITSM-5052 [Q-글로벌][iOS] 회원가입 > ..." 형식으로 반환
+	h.logger.Printf("[SLACK_NOTIFY] ✅ Jira 이슈 타이틀 조회 성공: %s\n", issueTitle)
+	return fmt.Sprintf("%s %s", issueKey, issueTitle)
 }
 
 // isFilteredEmail은 필터링 대상 Jira 알림 이메일인지 확인합니다.

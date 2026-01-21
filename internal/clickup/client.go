@@ -157,7 +157,7 @@ func (c *ClickUpClient) formatEmailTask(msg *domain.Message) (name, description 
 *이 태스크는 Email Monitor에 의해 자동 생성되었습니다.*`, msg.Text))
 
 	description = descBuilder.String()
-	tags = []string{"auto-generated", "email"}
+	tags = []string{"auto-generated"} //, "email"
 	return
 }
 
