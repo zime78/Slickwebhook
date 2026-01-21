@@ -115,7 +115,7 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 		}
 	}
 
-	h.logger.Printf("[FORWARD] 📤 ClickUp으로 전송 중... (BotID: %s)\n", msg.BotID)
+	h.logger.Printf("[FORWARD] 📤 ClickUp으로 전송 중... (BotID: %s, IssueKey: %s)\n", msg.BotID, issueKey)
 
 	// Jira 이메일인 경우 제목을 이슈키 + 이슈타이틀 형식으로 변환 + 본문 재구성
 	processedMsg := msg
@@ -204,6 +204,8 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 			} else {
 				h.logger.Printf("[FORWARD] 📝 Jira 이슈 처리 완료 마킹: %s\n", issueKey)
 			}
+		} else {
+			h.logger.Printf("[FORWARD] ⚠️ Jira 이슈 마킹 스킵: issueKey=%q, jiraIssueStore=%v\n", issueKey, h.jiraIssueStore != nil)
 		}
 	}
 
