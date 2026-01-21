@@ -21,3 +21,4 @@ postman/*_environment.json
 .DS_Store
 email_history.json
 processed_emails.db
+jira_issues.db
