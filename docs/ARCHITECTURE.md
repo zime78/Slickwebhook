@@ -15,6 +15,8 @@ SlickWebhook은 **멀티 소스 모니터링 서비스**로, Slack 채널과 Gma
 
 ### 전체 구조
 
+![alt text](email_workflow_diagram_1769028365434.png)
+
 ```mermaid
 flowchart TB
     subgraph External["외부 서비스"]

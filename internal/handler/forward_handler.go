@@ -10,6 +10,7 @@ import (
 	"github.com/zime/slickwebhook/internal/clickup"
 	"github.com/zime/slickwebhook/internal/domain"
 	"github.com/zime/slickwebhook/internal/history"
+	"github.com/zime/slickwebhook/internal/store"
 )
 
 // ForwardJiraClient는 Jira API 클라이언트 인터페이스입니다.
@@ -19,36 +20,39 @@ type ForwardJiraClient interface {
 
 // ForwardHandler는 이벤트를 ClickUp로 전송하고 히스토리를 관리하는 핸들러입니다.
 type ForwardHandler struct {
-	clickupClient clickup.Client
-	historyStore  history.Store
-	logger        *log.Logger
-	enabled       bool
-	filterBotOnly bool              // true면 봇 메시지만 전송
-	allowedBotIDs []string          // 허용된 봇 ID 목록 (비어있으면 모든 봇)
-	jiraClient    ForwardJiraClient // Jira API 클라이언트 (이슈 타이틀 조회용)
+	clickupClient  clickup.Client
+	historyStore   history.Store
+	logger         *log.Logger
+	enabled        bool
+	filterBotOnly  bool                 // true면 봇 메시지만 전송
+	allowedBotIDs  []string             // 허용된 봇 ID 목록 (비어있으면 모든 봇)
+	jiraClient     ForwardJiraClient    // Jira API 클라이언트 (이슈 타이틀 조회용)
+	jiraIssueStore store.JiraIssueStore // Jira 이슈 중복 체크 저장소
 }
 
 // ForwardHandlerConfig는 ForwardHandler 설정입니다.
 type ForwardHandlerConfig struct {
-	ClickUpClient clickup.Client
-	HistoryStore  history.Store
-	Logger        *log.Logger
-	Enabled       bool
-	FilterBotOnly bool              // true면 봇 메시지만 전송
-	AllowedBotIDs []string          // 허용된 봇 ID 목록 (비어있으면 모든 봇)
-	JiraClient    ForwardJiraClient // Jira API 클라이언트 (이슈 타이틀 조회용)
+	ClickUpClient  clickup.Client
+	HistoryStore   history.Store
+	Logger         *log.Logger
+	Enabled        bool
+	FilterBotOnly  bool                 // true면 봇 메시지만 전송
+	AllowedBotIDs  []string             // 허용된 봇 ID 목록 (비어있으면 모든 봇)
+	JiraClient     ForwardJiraClient    // Jira API 클라이언트 (이슈 타이틀 조회용)
+	JiraIssueStore store.JiraIssueStore // Jira 이슈 중복 체크 저장소
 }
 
 // NewForwardHandler는 새로운 ForwardHandler를 생성합니다.
 func NewForwardHandler(config ForwardHandlerConfig) *ForwardHandler {
 	return &ForwardHandler{
-		clickupClient: config.ClickUpClient,
-		historyStore:  config.HistoryStore,
-		logger:        config.Logger,
-		enabled:       config.Enabled,
-		filterBotOnly: config.FilterBotOnly,
-		allowedBotIDs: config.AllowedBotIDs,
-		jiraClient:    config.JiraClient,
+		clickupClient:  config.ClickUpClient,
+		historyStore:   config.HistoryStore,
+		logger:         config.Logger,
+		enabled:        config.Enabled,
+		filterBotOnly:  config.FilterBotOnly,
+		allowedBotIDs:  config.AllowedBotIDs,
+		jiraClient:     config.JiraClient,
+		jiraIssueStore: config.JiraIssueStore,
 	}
 }
 
@@ -96,6 +100,18 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 		return
 	}
 
+	// Jira 이슈 중복 체크 (동일 이슈는 한 번만 전송)
+	issueKey := h.extractJiraIssueKey(msg.Subject)
+	if issueKey != "" && h.jiraIssueStore != nil {
+		processed, err := h.jiraIssueStore.IsProcessed(issueKey)
+		if err != nil {
+			h.logger.Printf("[FORWARD] ⚠️ Jira 이슈 중복 체크 실패: %v\n", err)
+		} else if processed {
+			h.logger.Printf("[FORWARD] ⏭️ Jira 이슈 중복 스킵 (이미 처리됨): %s\n", issueKey)
+			return
+		}
+	}
+
 	h.logger.Printf("[FORWARD] 📤 ClickUp으로 전송 중... (BotID: %s)\n", msg.BotID)
 
 	// Jira 이메일인 경우 제목을 이슈키 + 이슈타이틀 형식으로 변환
@@ -134,6 +150,15 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 		h.logger.Printf("[FORWARD] ✅ 전송 성공!\n")
 		h.logger.Printf("  - Task ID: %s\n", resp.ID)
 		h.logger.Printf("  - Task URL: %s\n", resp.URL)
+
+		// Jira 이슈 처리 완료 마킹 (중복 전송 방지)
+		if issueKey != "" && h.jiraIssueStore != nil {
+			if markErr := h.jiraIssueStore.MarkProcessed(issueKey, processedMsg.Subject); markErr != nil {
+				h.logger.Printf("[FORWARD] ⚠️ Jira 이슈 마킹 실패: %v\n", markErr)
+			} else {
+				h.logger.Printf("[FORWARD] 📝 Jira 이슈 처리 완료 마킹: %s\n", issueKey)
+			}
+		}
 	}
 
 	// 히스토리 저장
@@ -211,4 +236,10 @@ func (h *ForwardHandler) formatJiraSubjectForClickUp(subject string) string {
 	// "ITSM-5052 [Q-글로벌][iOS] 회원가입 > ..." 형식으로 반환
 	h.logger.Printf("[FORWARD] ✅ Jira 이슈 타이틀 조회 성공: %s\n", issueTitle)
 	return issueKey + " " + issueTitle
+}
+
+// extractJiraIssueKey는 텍스트에서 Jira 이슈 키를 추출합니다.
+func (h *ForwardHandler) extractJiraIssueKey(text string) string {
+	issueKeyPattern := regexp.MustCompile(`[A-Z][A-Z0-9]+-\d+`)
+	return issueKeyPattern.FindString(text)
 }
