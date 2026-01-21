@@ -15,7 +15,8 @@ func ReformatDescription(description string, attachmentURLs []string) string {
 	}
 
 	// 섹션 분리를 위한 패턴
-	sectionPattern := regexp.MustCompile(`\[(재현 ?스텝|현 ?결과|기대 ?결과|추가 ?정보)\]`)
+	// [오류내용], [수정요청]도 인식 (Jira에서 직접 사용되는 헤더)
+	sectionPattern := regexp.MustCompile(`\[(재현 ?스텝|현 ?결과|오류 ?내용|기대 ?결과|수정 ?요청|추가 ?정보)\]`)
 
 	// 섹션별로 분리
 	sections := make(map[string]string)
@@ -56,24 +57,32 @@ func ReformatDescription(description string, attachmentURLs []string) string {
 		result.WriteString("\n")
 	}
 
-	// [오류내용] (기존 [현 결과])
-	if content, ok := sections["현결과"]; ok && content != "" {
+	// [오류내용] (기존 [현 결과] 또는 직접 [오류내용])
+	errorContent := sections["현결과"]
+	if errorContent == "" {
+		errorContent = sections["오류내용"]
+	}
+	if errorContent != "" {
 		result.WriteString("[오류내용]\n")
-		result.WriteString(formatAsNumberedList(content))
+		result.WriteString(formatAsNumberedList(errorContent))
 		// 첨부 이미지 추가
 		if len(attachmentURLs) > 0 {
-			result.WriteString(fmt.Sprintf("%d. 이미지 첨부\n", countNonEmptyLines(content)+1))
+			result.WriteString(fmt.Sprintf("%d. 이미지 첨부\n", countNonEmptyLines(errorContent)+1))
 		}
 		result.WriteString("\n")
 	}
 
-	// [수정요청] (기존 [기대 결과])
-	if content, ok := sections["기대결과"]; ok && content != "" {
+	// [수정요청] (기존 [기대 결과] 또는 직접 [수정요청])
+	fixContent := sections["기대결과"]
+	if fixContent == "" {
+		fixContent = sections["수정요청"]
+	}
+	if fixContent != "" {
 		result.WriteString("[수정요청]\n")
-		result.WriteString(formatAsNumberedList(content))
+		result.WriteString(formatAsNumberedList(fixContent))
 		// 첨부 이미지 추가
 		if len(attachmentURLs) > 1 {
-			result.WriteString(fmt.Sprintf("%d. 이미지 첨부\n", countNonEmptyLines(content)+1))
+			result.WriteString(fmt.Sprintf("%d. 이미지 첨부\n", countNonEmptyLines(fixContent)+1))
 		}
 		result.WriteString("\n")
 	}
