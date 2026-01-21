@@ -19,3 +19,5 @@ postman/*_environment.json
 .vscode/
 *.swp
 .DS_Store
+email_history.json
+processed_emails.db
