@@ -164,3 +164,44 @@ func TestFilterImageAttachments(t *testing.T) {
 		}
 	}
 }
+
+func TestReformatDescription_DirectHeaders(t *testing.T) {
+	// Jira에서 [오류내용], [수정요청] 헤더를 직접 사용하는 케이스
+	input := `[오류내용]
+1. AOS > 내정보 > 프로필 > 이메일 계정 로그인 시, 이메일 영역이 미노출됩니다.
+
+[수정요청]
+1. 이메일 로그인 > 내 정보 > 프로필 진입시 이메일 영역 노출되도록 수정을 요청드립니다
+2. [Q 글로벌 -APP] 내정보 / 5P
+
+[추가 정보]
+테스트 환경
+서버 환경 : QA
+테스트 디바이스 : Galaxy Z flip 5(16)
+테스트 버전 : AOS 2.0.0(2)
+테스트 계정 : ianbyun02@gmail.com`
+
+	result := ReformatDescription(input, []string{"https://example.com/image.png"})
+
+	// [오류내용] 섹션이 있어야 함
+	if !strings.Contains(result, "[오류내용]") {
+		t.Error("[오류내용] 섹션이 있어야 함")
+	}
+
+	// [수정요청] 섹션이 있어야 함
+	if !strings.Contains(result, "[수정요청]") {
+		t.Error("[수정요청] 섹션이 있어야 함")
+	}
+
+	// [추가 정보] 섹션이 있어야 함
+	if !strings.Contains(result, "[추가 정보]") {
+		t.Error("[추가 정보] 섹션이 있어야 함")
+	}
+
+	// 내용이 제대로 파싱되었는지 확인
+	if !strings.Contains(result, "이메일 영역이 미노출") {
+		t.Error("오류내용 내용이 포함되어야 함")
+	}
+
+	t.Logf("결과:\n%s", result)
+}
