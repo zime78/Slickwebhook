@@ -21,7 +21,7 @@ type Config struct {
 
 const DefaultPollInterval = 30 * time.Second
 const DefaultRetentionDays = 90
-const Version = "1.2.0" // Slack 독립 알림 + [오류내용]/[수정요청] 헤더 지원
+const Version = "1.3.0" // Slack→ClickUp 순서 변경, ClickUp 성공 시에만 DB 저장
 
 // Service는 Email 모니터링 서비스입니다.
 type Service struct {

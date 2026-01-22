@@ -197,15 +197,13 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 			h.uploadJiraAttachments(ctx, resp.ID, imageAttachments)
 		}
 
-		// Jira 이슈 처리 완료 마킹 (중복 전송 방지)
+		// Jira 이슈 처리 완료 마킹 (ClickUp 성공 시에만 DB 저장)
 		if issueKey != "" && h.jiraIssueStore != nil {
 			if markErr := h.jiraIssueStore.MarkProcessed(issueKey, processedMsg.Subject); markErr != nil {
 				h.logger.Printf("[FORWARD] ⚠️ Jira 이슈 마킹 실패: %v\n", markErr)
 			} else {
 				h.logger.Printf("[FORWARD] 📝 Jira 이슈 처리 완료 마킹: %s\n", issueKey)
 			}
-		} else {
-			h.logger.Printf("[FORWARD] ⚠️ Jira 이슈 마킹 스킵: issueKey=%q, jiraIssueStore=%v\n", issueKey, h.jiraIssueStore != nil)
 		}
 	}
 
