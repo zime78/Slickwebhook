@@ -10,7 +10,6 @@ import (
 
 	"github.com/slack-go/slack"
 	"github.com/zime/slickwebhook/internal/domain"
-	"github.com/zime/slickwebhook/internal/store"
 )
 
 // SlackNotifier는 Slack 메시지 전송 인터페이스입니다.
@@ -26,36 +25,33 @@ type JiraClient interface {
 
 // SlackNotifyHandler는 이벤트를 Slack으로 알림 전송하는 핸들러입니다.
 type SlackNotifyHandler struct {
-	client         SlackNotifier
-	channelID      string
-	logger         *log.Logger
-	enabled        bool
-	jiraBaseURL    string               // Jira 이슈 링크용 (예: https://example.atlassian.net)
-	jiraClient     JiraClient           // Jira API 클라이언트 (이슈 타이틀 조회용)
-	jiraIssueStore store.JiraIssueStore // Jira 이슈 중복 체크 저장소 (ClickUp과 공유)
+	client      SlackNotifier
+	channelID   string
+	logger      *log.Logger
+	enabled     bool
+	jiraBaseURL string     // Jira 이슈 링크용 (예: https://example.atlassian.net)
+	jiraClient  JiraClient // Jira API 클라이언트 (이슈 타이틀 조회용)
 }
 
 // SlackNotifyHandlerConfig는 SlackNotifyHandler 설정입니다.
 type SlackNotifyHandlerConfig struct {
-	Client         SlackNotifier
-	ChannelID      string
-	Logger         *log.Logger
-	Enabled        bool
-	JiraBaseURL    string               // Jira 이슈 링크용 (예: https://example.atlassian.net)
-	JiraClient     JiraClient           // Jira API 클라이언트 (이슈 타이틀 조회용)
-	JiraIssueStore store.JiraIssueStore // Jira 이슈 중복 체크 저장소 (ClickUp과 공유)
+	Client      SlackNotifier
+	ChannelID   string
+	Logger      *log.Logger
+	Enabled     bool
+	JiraBaseURL string     // Jira 이슈 링크용 (예: https://example.atlassian.net)
+	JiraClient  JiraClient // Jira API 클라이언트 (이슈 타이틀 조회용)
 }
 
 // NewSlackNotifyHandler는 새로운 SlackNotifyHandler를 생성합니다.
 func NewSlackNotifyHandler(config SlackNotifyHandlerConfig) *SlackNotifyHandler {
 	return &SlackNotifyHandler{
-		client:         config.Client,
-		channelID:      config.ChannelID,
-		logger:         config.Logger,
-		enabled:        config.Enabled,
-		jiraBaseURL:    config.JiraBaseURL,
-		jiraClient:     config.JiraClient,
-		jiraIssueStore: config.JiraIssueStore,
+		client:      config.Client,
+		channelID:   config.ChannelID,
+		logger:      config.Logger,
+		enabled:     config.Enabled,
+		jiraBaseURL: config.JiraBaseURL,
+		jiraClient:  config.JiraClient,
 	}
 }
 
@@ -85,17 +81,8 @@ func (h *SlackNotifyHandler) Handle(event *domain.Event) {
 		return
 	}
 
-	// Jira 이슈 중복 체크 (ClickUp과 동일한 저장소 사용)
-	issueKey := h.extractJiraIssueKey(msg.Subject)
-	if issueKey != "" && h.jiraIssueStore != nil {
-		processed, err := h.jiraIssueStore.IsProcessed(issueKey)
-		if err != nil {
-			h.logger.Printf("[SLACK_NOTIFY] ⚠️ Jira 이슈 중복 체크 실패: %v\n", err)
-		} else if processed {
-			h.logger.Printf("[SLACK_NOTIFY] ⏭️ Jira 이슈 중복 스킵 (이미 처리됨): %s\n", issueKey)
-			return
-		}
-	}
+	// Note: Jira 중복 체크는 ClickUp 핸들러에서만 수행
+	// Slack은 ClickUp과 독립적으로 알림을 전송해야 함
 
 	h.logger.Printf("[SLACK_NOTIFY] 📤 Slack 알림 전송 중...\n")
 

@@ -21,7 +21,7 @@ type Config struct {
 
 const DefaultPollInterval = 30 * time.Second
 const DefaultRetentionDays = 90
-const Version = "1.1.0" // Jira 본문 재구성 + 이미지 업로드 기능 추가
+const Version = "1.2.0" // Slack 독립 알림 + [오류내용]/[수정요청] 헤더 지원
 
 // Service는 Email 모니터링 서비스입니다.
 type Service struct {
