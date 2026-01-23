@@ -113,6 +113,99 @@ func TestClickUpClient_CreateTask_Error(t *testing.T) {
 	}
 }
 
+// TestClickUpClient_GetTask는 태스크 조회를 테스트합니다.
+func TestClickUpClient_GetTask(t *testing.T) {
+	// Mock 서버 설정
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 요청 검증
+		if r.Method != "GET" {
+			t.Errorf("잘못된 메서드: %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != "test-token" {
+			t.Error("Authorization 헤더가 없음")
+		}
+
+		// 응답 반환
+		resp := map[string]interface{}{
+			"id":          "task123",
+			"name":        "테스트 태스크",
+			"description": "태스크 설명입니다",
+			"url":         "https://app.clickup.com/t/task123",
+			"status": map[string]string{
+				"status": "Open",
+				"color":  "#d3d3d3",
+			},
+			"date_created": "1704153600000",
+			"date_updated": "1704240000000",
+			"attachments": []map[string]interface{}{
+				{
+					"id":        "attach1.png",
+					"title":     "screenshot.png",
+					"extension": "png",
+					"url":       "https://example.com/screenshot.png",
+					"size":      12345,
+					"mimetype":  "image/png",
+				},
+			},
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	// 클라이언트 생성 (테스트 서버 URL 사용)
+	config := Config{
+		APIToken: "test-token",
+		ListID:   "123456",
+	}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	// 태스크 조회
+	task, err := client.GetTask(context.Background(), "task123")
+
+	if err != nil {
+		t.Fatalf("태스크 조회 실패: %v", err)
+	}
+	if task.ID != "task123" {
+		t.Errorf("잘못된 태스크 ID: %s", task.ID)
+	}
+	if task.Name != "테스트 태스크" {
+		t.Errorf("잘못된 태스크 이름: %s", task.Name)
+	}
+	if task.Status.Status != "Open" {
+		t.Errorf("잘못된 상태: %s", task.Status.Status)
+	}
+	if len(task.Attachments) != 1 {
+		t.Errorf("첨부파일 개수 불일치: %d", len(task.Attachments))
+	}
+	if task.Attachments[0].Title != "screenshot.png" {
+		t.Errorf("잘못된 첨부파일 제목: %s", task.Attachments[0].Title)
+	}
+}
+
+// TestClickUpClient_GetTask_NotFound는 태스크 미발견 에러를 테스트합니다.
+func TestClickUpClient_GetTask_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"err": "Task not found"}`))
+	}))
+	defer server.Close()
+
+	config := Config{
+		APIToken: "test-token",
+		ListID:   "123456",
+	}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	_, err := client.GetTask(context.Background(), "invalid-task")
+
+	if err == nil {
+		t.Error("에러가 발생해야 합니다")
+	}
+}
+
 // TestTruncateText는 텍스트 자르기를 테스트합니다.
 func TestTruncateText(t *testing.T) {
 	tests := []struct {

@@ -144,23 +144,25 @@ func TestReformatDescription_OneImage(t *testing.T) {
 	t.Logf("결과:\n%s", result)
 }
 
-func TestFilterImageAttachments(t *testing.T) {
+func TestFilterMediaAttachments(t *testing.T) {
 	attachments := []Attachment{
 		{ID: "1", Filename: "image.png", MimeType: "image/png"},
 		{ID: "2", Filename: "doc.pdf", MimeType: "application/pdf"},
 		{ID: "3", Filename: "photo.jpg", MimeType: "image/jpeg"},
 		{ID: "4", Filename: "video.mp4", MimeType: "video/mp4"},
+		{ID: "5", Filename: "movie.mov", MimeType: "video/quicktime"},
 	}
 
-	images := FilterImageAttachments(attachments)
+	media := FilterMediaAttachments(attachments)
 
-	if len(images) != 2 {
-		t.Errorf("이미지 2개여야 함: got %d", len(images))
+	// 이미지 2개 + 동영상 2개 = 4개
+	if len(media) != 4 {
+		t.Errorf("미디어 4개여야 함: got %d", len(media))
 	}
 
-	for _, img := range images {
-		if !strings.HasPrefix(img.MimeType, "image/") {
-			t.Errorf("이미지가 아닌 파일 포함됨: %s", img.MimeType)
+	for _, m := range media {
+		if !strings.HasPrefix(m.MimeType, "image/") && !strings.HasPrefix(m.MimeType, "video/") {
+			t.Errorf("이미지나 동영상이 아닌 파일 포함됨: %s", m.MimeType)
 		}
 	}
 }
