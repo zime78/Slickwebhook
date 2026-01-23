@@ -19,6 +19,7 @@ import (
 type Client interface {
 	CreateTask(ctx context.Context, msg *domain.Message) (*TaskResponse, error)
 	UploadAttachment(ctx context.Context, taskID string, filename string, data []byte) error
+	GetTask(ctx context.Context, taskID string) (*Task, error)
 }
 
 // TaskResponse는 ClickUp 태스크 생성 응답입니다.
@@ -26,6 +27,37 @@ type TaskResponse struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	URL  string `json:"url"`
+}
+
+// Task는 ClickUp 태스크 조회 응답입니다.
+type Task struct {
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Status      TaskStatus   `json:"status"`
+	URL         string       `json:"url"`
+	DateCreated string       `json:"date_created"`
+	DateUpdated string       `json:"date_updated"`
+	Attachments []Attachment `json:"attachments"`
+}
+
+// TaskStatus는 태스크 상태 정보입니다.
+type TaskStatus struct {
+	Status string `json:"status"`
+	Color  string `json:"color"`
+}
+
+// Attachment는 태스크 첨부파일 정보입니다.
+type Attachment struct {
+	ID              string `json:"id"`
+	Title           string `json:"title"`
+	Extension       string `json:"extension"`
+	URL             string `json:"url"`
+	Size            int64  `json:"size"`
+	MimeType        string `json:"mimetype"`
+	ThumbnailSmall  string `json:"thumbnail_small"`
+	ThumbnailMedium string `json:"thumbnail_medium"`
+	ThumbnailLarge  string `json:"thumbnail_large"`
 }
 
 // Config는 ClickUp 클라이언트 설정입니다.
@@ -253,6 +285,40 @@ func truncateText(text string, maxLen int) string {
 		return text
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+// GetTask는 태스크 ID로 태스크 정보를 조회합니다.
+func (c *ClickUpClient) GetTask(ctx context.Context, taskID string) (*Task, error) {
+	url := fmt.Sprintf("%s/task/%s", c.baseURL, taskID)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("요청 생성 실패: %w", err)
+	}
+
+	req.Header.Set("Authorization", c.config.APIToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("API 호출 실패: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("응답 읽기 실패: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API 에러 (상태코드: %d): %s", resp.StatusCode, string(body))
+	}
+
+	var task Task
+	if err := json.Unmarshal(body, &task); err != nil {
+		return nil, fmt.Errorf("응답 파싱 실패: %w", err)
+	}
+
+	return &task, nil
 }
 
 // UploadAttachment는 태스크에 첨부파일을 업로드합니다.

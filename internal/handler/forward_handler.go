@@ -131,9 +131,9 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 			if detail, err := h.jiraClient.GetIssueDetail(detailCtx, issueKey); err == nil {
 				h.logger.Printf("[FORWARD] ✅ Jira 이슈 상세 조회 성공\n")
 
-				// 이미지 첨부파일 필터링
-				imageAttachments = jira.FilterImageAttachments(detail.Attachments)
-				h.logger.Printf("[FORWARD] 📷 첨부 이미지: %d개\n", len(imageAttachments))
+				// 이미지/동영상 첨부파일 필터링
+				imageAttachments = jira.FilterMediaAttachments(detail.Attachments)
+				h.logger.Printf("[FORWARD] 📎 첨부 미디어: %d개\n", len(imageAttachments))
 
 				// 본문 재구성 ([현 결과] → [오류내용], [기대 결과] → [수정요청])
 				urls := make([]string, len(imageAttachments))

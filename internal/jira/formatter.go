@@ -187,13 +187,14 @@ func normalizeSection(section string) string {
 	return section
 }
 
-// FilterImageAttachments는 이미지 첨부파일만 필터링합니다.
-func FilterImageAttachments(attachments []Attachment) []Attachment {
-	var images []Attachment
+// FilterMediaAttachments는 이미지와 동영상 첨부파일을 필터링합니다.
+func FilterMediaAttachments(attachments []Attachment) []Attachment {
+	var media []Attachment
 	for _, att := range attachments {
-		if strings.HasPrefix(att.MimeType, "image/") {
-			images = append(images, att)
+		if strings.HasPrefix(att.MimeType, "image/") ||
+			strings.HasPrefix(att.MimeType, "video/") {
+			media = append(media, att)
 		}
 	}
-	return images
+	return media
 }
