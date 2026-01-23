@@ -132,15 +132,9 @@ func (c *ClickUpClient) formatEmailTask(msg *domain.Message) (name, description 
 	// Jira 이슈 키 추출 및 링크 생성
 	jiraLinks := c.extractJiraLinks(msg.Subject, msg.Text)
 
-	// 설명 생성
+	// 설명 생성 (간소화된 포맷)
 	var descBuilder strings.Builder
-	descBuilder.WriteString(fmt.Sprintf(`📧 이메일 자동 수집
-
-**발신자:** %s
-**제목:** %s
-**수신 시간:** %s`,
-		msg.From,
-		msg.Subject,
+	descBuilder.WriteString(fmt.Sprintf("**수신 시간:** %s",
 		msg.CreatedAt.Format("2006-01-02 15:04:05"),
 	))
 
@@ -149,17 +143,10 @@ func (c *ClickUpClient) formatEmailTask(msg *domain.Message) (name, description 
 		descBuilder.WriteString(fmt.Sprintf("\n**🔗 Jira 이슈:** %s", jiraLinks))
 	}
 
-	descBuilder.WriteString(fmt.Sprintf(`
-
----
-
-%s
-
----
-*이 태스크는 Email Monitor에 의해 자동 생성되었습니다.*`, msg.Text))
+	descBuilder.WriteString(fmt.Sprintf("\n\n---\n\n%s", msg.Text))
 
 	description = descBuilder.String()
-	tags = []string{"auto-generated"} //, "email"
+	tags = []string{"auto-generated"}
 	return
 }
 

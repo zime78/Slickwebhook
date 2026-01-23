@@ -87,10 +87,10 @@ func ReformatDescription(description string, attachmentURLs []string) string {
 		result.WriteString("\n")
 	}
 
-	// [추가 정보] - 번호 없이 그대로
+	// [추가 정보] - 번호 없이, 빈 줄 제거
 	if content, ok := sections["추가정보"]; ok && content != "" {
 		result.WriteString("[추가 정보]\n")
-		result.WriteString(collapseEmptyLines(content))
+		result.WriteString(removeEmptyLines(content))
 		result.WriteString("\n")
 	}
 
@@ -157,6 +157,22 @@ func collapseEmptyLines(content string) string {
 			result.WriteString(trimmed)
 			result.WriteString("\n")
 			prevEmpty = false
+		}
+	}
+
+	return strings.TrimSpace(result.String())
+}
+
+// removeEmptyLines는 빈 줄을 완전히 제거합니다.
+func removeEmptyLines(content string) string {
+	lines := strings.Split(content, "\n")
+	var result strings.Builder
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			result.WriteString(trimmed)
+			result.WriteString("\n")
 		}
 	}
 
