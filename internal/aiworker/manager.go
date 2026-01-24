@@ -69,13 +69,22 @@ func (m *Manager) GetWorkerByListID(listID string) *Worker {
 
 // GetWorkerBySrcPath는 소스 경로로 Worker를 찾습니다.
 // Claude Code Hook에서 cwd를 기반으로 Worker를 식별할 때 사용합니다.
+// 동일한 srcPath의 Worker가 여러 개일 경우, 처리 중인 Worker를 우선 반환합니다.
 func (m *Manager) GetWorkerBySrcPath(srcPath string) *Worker {
+	var firstMatch *Worker
 	for _, w := range m.workers {
 		if w.config.SrcPath == srcPath {
-			return w
+			// 처리 중인 Worker 우선 반환
+			if w.IsProcessing() {
+				return w
+			}
+			// 첫 번째 매칭된 Worker 저장
+			if firstMatch == nil {
+				firstMatch = w
+			}
 		}
 	}
-	return nil
+	return firstMatch
 }
 
 // IsAIList는 주어진 리스트 ID가 AI 리스트인지 확인합니다.

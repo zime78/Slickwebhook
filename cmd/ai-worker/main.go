@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -39,6 +40,7 @@ func main() {
 	// ClickUp 클라이언트 생성
 	clickupClient := clickup.NewClickUpClient(clickup.Config{
 		APIToken: os.Getenv("CLICKUP_API_TOKEN"),
+		TeamID:   os.Getenv("CLICKUP_TEAM_ID"),
 	})
 
 	// Slack 클라이언트 생성
@@ -78,20 +80,57 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Hook 서버 시작 (Claude Code 완료 알림 수신)
+	// Hook 서버 시작 (Claude Code Stop Hook 수신 - 로그만 남김)
+	// 참고: Stop Hook은 Rate Limit 등 비정상 종료에도 발생하므로 완료 처리하지 않음
 	hookCallback := func(payload *hookserver.StopHookPayload) {
-		logger.Printf("[AI Worker] Claude Code 완료 알림: %s", payload.Cwd)
+		logger.Printf("[AI Worker] Claude Code Stop Hook 수신: %s (완료 처리는 SessionEnd에서 수행)", payload.Cwd)
+	}
 
-		if err := manager.OnHookReceived(ctx, payload.Cwd); err != nil {
-			logger.Printf("[AI Worker] 완료 처리 실패: %v", err)
+	// SessionEnd 콜백 (취소 시 롤백 / 정상 종료 시 완료 처리)
+	sessionEndCallback := func(payload *hookserver.SessionEndPayload) {
+		logger.Printf("[AI Worker] 세션 종료: cwd=%s, reason=%s", payload.Cwd, payload.Reason)
+
+		worker := manager.GetWorkerBySrcPath(payload.Cwd)
+		if worker == nil || !worker.IsProcessing() {
+			return
 		}
 
-		// Slack 알림 전송
-		sendSlackNotification(ctx, slackClient, workerConfig.SlackChannel, payload.Cwd, manager)
+		switch payload.Reason {
+		case hookserver.ReasonPromptInputExit:
+			// 사용자 취소 시 상태 롤백
+			logger.Printf("[AI Worker] 사용자 취소 감지, 상태 롤백 시작...")
+			taskID := worker.GetCurrentTaskID()
+			originalStatus := worker.GetOriginalStatus()
+
+			if err := worker.RollbackStatus(ctx); err != nil {
+				logger.Printf("[AI Worker] 상태 롤백 실패: %v", err)
+			} else {
+				logger.Printf("[AI Worker] 상태 롤백 완료: 태스크=%s, 원래상태=%s", taskID, originalStatus)
+			}
+
+		case hookserver.ReasonOther:
+			// 정상 종료 시 완료 처리 (Stop Hook 미발생 fallback)
+			logger.Printf("[AI Worker] 정상 종료 감지, 완료 처리 시작...")
+
+			// 완료 처리 전에 태스크 정보 저장 (ClearProcessing 전에)
+			taskID := worker.GetCurrentTaskID()
+			taskName := worker.GetCurrentTaskName()
+			jiraID := worker.GetCurrentJiraID()
+			workerID := worker.GetConfig().ID
+
+			if err := manager.OnHookReceived(ctx, payload.Cwd); err != nil {
+				logger.Printf("[AI Worker] 완료 처리 실패: %v", err)
+			} else {
+				logger.Printf("[AI Worker] 완료 처리 성공")
+				// Slack 알림 전송 (저장된 태스크 정보 사용)
+				sendSlackNotificationWithInfo(ctx, slackClient, workerConfig.SlackChannel, workerID, taskID, taskName, jiraID)
+			}
+		}
 	}
 
 	hookServer := hookserver.NewServer(workerConfig.HookServerPort, hookCallback)
 	hookServer.SetLogger(logger)
+	hookServer.SetSessionEndCallback(sessionEndCallback)
 
 	// Webhook 서버 시작 (ClickUp 이벤트 수신)
 	webhookProcessor := &WebhookProcessor{manager: manager, logger: logger}
@@ -238,12 +277,51 @@ func sendSlackNotification(ctx context.Context, client *slack.SlackClient, chann
 	}
 
 	taskID := worker.GetCurrentTaskID()
+	taskName := worker.GetCurrentTaskName()
 	config := worker.GetConfig()
 
 	message := "✅ AI 작업이 완료되었습니다.\n"
-	message += "• Worker: " + config.ID + "\n"
+	message += "Worker: " + config.ID + "\n"
+
+	if taskName != "" {
+		message += "제목: " + taskName + "\n"
+	}
+
 	if taskID != "" {
-		message += "• 태스크: https://app.clickup.com/t/" + taskID + "\n"
+		message += "ClickUP: https://app.clickup.com/t/" + taskID + "\n"
+	}
+
+	// Jira 이슈 ID 추출 (ITSM-xxxx, BUGS-xxxx 등)
+	if taskName != "" {
+		re := regexp.MustCompile(`([A-Z]+-\d+)`)
+		if match := re.FindString(taskName); match != "" {
+			message += "Jira 이슈: https://kakaovx.atlassian.net/browse/" + match + "\n"
+		}
+	}
+
+	client.PostMessage(ctx, channelID, nil, message)
+}
+
+// sendSlackNotificationWithInfo는 저장된 태스크 정보로 Slack 알림을 전송합니다.
+func sendSlackNotificationWithInfo(ctx context.Context, client *slack.SlackClient, channelID, workerID, taskID, taskName, jiraID string) {
+	if channelID == "" {
+		return
+	}
+
+	message := "✅ AI 작업이 완료되었습니다.\n"
+	message += "Worker: " + workerID + "\n"
+
+	if taskName != "" {
+		message += "제목: " + taskName + "\n"
+	}
+
+	if taskID != "" {
+		message += "ClickUP: https://app.clickup.com/t/" + taskID + "\n"
+	}
+
+	// Jira 이슈 링크 (description에서 추출된 ID 사용)
+	if jiraID != "" {
+		message += "Jira 이슈: https://kakaovx.atlassian.net/browse/" + jiraID + "\n"
 	}
 
 	client.PostMessage(ctx, channelID, nil, message)

@@ -94,7 +94,7 @@ func TestManager_AllIdle(t *testing.T) {
 
 	// Worker를 busy로 설정
 	workers := manager.GetWorkers()
-	workers[0].SetProcessing("task1")
+	workers[0].SetProcessing("task1", "Test Task", "ITSM-1234", "open")
 
 	if manager.AllIdle() {
 		t.Error("처리 중일 때 AllIdle이 아니어야 함")

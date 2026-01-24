@@ -3,6 +3,7 @@ package aiworker
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 
 	"github.com/zime/slickwebhook/internal/clickup"
@@ -28,9 +29,12 @@ type Worker struct {
 	completedListID string // 완료된 태스크 이동 목표 리스트 ID
 
 	// 상태 관리
-	mu            sync.Mutex
-	processing    bool
-	currentTaskID string
+	mu              sync.Mutex
+	processing      bool
+	currentTaskID   string
+	currentTaskName string // Slack 알림용 태스크 이름
+	currentJiraID   string // Slack 알림용 Jira 이슈 ID
+	originalStatus  string // 취소 시 롤백을 위한 원래 상태
 }
 
 // NewWorker는 새 Worker를 생성합니다.
@@ -66,11 +70,18 @@ func (w *Worker) ProcessTask(ctx context.Context, taskID string) error {
 		return fmt.Errorf("태스크를 찾을 수 없음: %s", taskID)
 	}
 
-	// 처리 상태 설정
-	w.SetProcessing(taskID)
+	// 원래 상태 저장 (롤백용)
+	originalStatus := task.Status.Status
+
+	// Description에서 Jira 이슈 ID 추출
+	jiraID := extractJiraID(task.Description)
+
+	// 처리 상태 설정 (태스크 ID, 이름, Jira ID, 원래 상태)
+	w.SetProcessing(taskID, task.Name, jiraID, originalStatus)
 
 	// 상태를 "작업중"으로 변경
 	if err := w.clickupClient.UpdateTaskStatus(ctx, taskID, w.statusWorking); err != nil {
+		w.ClearProcessing()
 		return fmt.Errorf("상태 변경 실패: %w", err)
 	}
 
@@ -117,9 +128,13 @@ func (w *Worker) CompleteTask(ctx context.Context) error {
 
 	// 완료 리스트로 이동 (설정된 경우에만)
 	if w.completedListID != "" {
+		fmt.Printf("[%s] 리스트 이동 시도: 태스크=%s, 목표리스트=%s\n", w.config.ID, taskID, w.completedListID)
 		if err := w.clickupClient.MoveTaskToList(ctx, taskID, w.completedListID); err != nil {
 			return fmt.Errorf("완료 리스트 이동 실패: %w", err)
 		}
+		fmt.Printf("[%s] 리스트 이동 성공\n", w.config.ID)
+	} else {
+		fmt.Printf("[%s] completedListID가 비어있어 리스트 이동 생략\n", w.config.ID)
 	}
 
 	// 처리 상태 클리어
@@ -136,11 +151,14 @@ func (w *Worker) IsProcessing() bool {
 }
 
 // SetProcessing은 처리 상태를 설정합니다.
-func (w *Worker) SetProcessing(taskID string) {
+func (w *Worker) SetProcessing(taskID, taskName, jiraID, originalStatus string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.processing = true
 	w.currentTaskID = taskID
+	w.currentTaskName = taskName
+	w.currentJiraID = jiraID
+	w.originalStatus = originalStatus
 }
 
 // ClearProcessing은 처리 상태를 클리어합니다.
@@ -149,6 +167,42 @@ func (w *Worker) ClearProcessing() {
 	defer w.mu.Unlock()
 	w.processing = false
 	w.currentTaskID = ""
+	w.currentTaskName = ""
+	w.currentJiraID = ""
+	w.originalStatus = ""
+}
+
+// RollbackStatus는 취소 시 태스크 상태를 원래 상태로 되돌립니다.
+func (w *Worker) RollbackStatus(ctx context.Context) error {
+	w.mu.Lock()
+	taskID := w.currentTaskID
+	originalStatus := w.originalStatus
+	w.mu.Unlock()
+
+	if taskID == "" {
+		return nil // 처리 중인 태스크 없음
+	}
+
+	if originalStatus == "" {
+		w.ClearProcessing()
+		return nil // 원래 상태 미저장
+	}
+
+	// 원래 상태로 변경
+	if err := w.clickupClient.UpdateTaskStatus(ctx, taskID, originalStatus); err != nil {
+		w.ClearProcessing()
+		return fmt.Errorf("상태 롤백 실패: %w", err)
+	}
+
+	w.ClearProcessing()
+	return nil
+}
+
+// GetOriginalStatus는 원래 상태를 반환합니다.
+func (w *Worker) GetOriginalStatus() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.originalStatus
 }
 
 // GetCurrentTaskID는 현재 처리 중인 태스크 ID를 반환합니다.
@@ -158,16 +212,65 @@ func (w *Worker) GetCurrentTaskID() string {
 	return w.currentTaskID
 }
 
+// GetCurrentTaskName는 현재 처리 중인 태스크 이름을 반환합니다.
+func (w *Worker) GetCurrentTaskName() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.currentTaskName
+}
+
 // GetConfig는 Worker 설정을 반환합니다.
 func (w *Worker) GetConfig() WorkerConfig {
 	return w.config
 }
 
 // GetPendingTasks는 리스트에서 대기 중인 태스크 목록을 조회합니다.
+// 완료 상태("개발완료", "배포(QA)", "취소", "완료됨(스토어)")의 태스크는 제외됩니다.
 func (w *Worker) GetPendingTasks(ctx context.Context) ([]*clickup.Task, error) {
 	opts := &clickup.GetTasksOptions{
 		OrderBy: "created",
 		Reverse: false, // 오래된 순 (등록순)
 	}
-	return w.clickupClient.GetTasks(ctx, w.config.ListID, opts)
+	tasks, err := w.clickupClient.GetTasks(ctx, w.config.ListID, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// 완료 상태 목록 (다시 처리하지 않음)
+	completedStatuses := map[string]bool{
+		"개발완료":     true,
+		"배포(QA)":   true,
+		"취소":       true,
+		"완료됨(스토어)": true,
+		"보류":       true,
+	}
+
+	// 완료 상태 태스크 필터링
+	var pendingTasks []*clickup.Task
+	for _, task := range tasks {
+		status := task.Status.Status
+		if !completedStatuses[status] {
+			pendingTasks = append(pendingTasks, task)
+		}
+	}
+
+	return pendingTasks, nil
+}
+
+// GetCurrentJiraID는 현재 처리 중인 Jira 이슈 ID를 반환합니다.
+func (w *Worker) GetCurrentJiraID() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.currentJiraID
+}
+
+// extractJiraID는 description에서 Jira 이슈 ID를 추출합니다.
+// 예: "[ITSM-5168](https://...)" 또는 "ITSM-5168" 패턴 인식
+func extractJiraID(description string) string {
+	// [ITSM-xxxx] 또는 ITSM-xxxx 패턴 매칭
+	re := regexp.MustCompile(`([A-Z]+-\d+)`)
+	if match := re.FindString(description); match != "" {
+		return match
+	}
+	return ""
 }

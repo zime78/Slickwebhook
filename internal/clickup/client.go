@@ -82,6 +82,7 @@ type Config struct {
 	ListID      string
 	AssigneeID  int
 	JiraBaseURL string // Jira 이슈 링크용 (예: https://example.atlassian.net)
+	TeamID      string // Workspace ID (리스트 이동용)
 }
 
 // ClickUpClient는 실제 ClickUp API 클라이언트입니다.
@@ -470,20 +471,16 @@ func (c *ClickUpClient) UpdateTaskStatus(ctx context.Context, taskID string, sta
 }
 
 // MoveTaskToList는 태스크를 다른 리스트로 이동합니다.
-// API: PUT /api/v2/task/{task_id}
+// API: PUT /api/v3/workspaces/{workspace_id}/tasks/{task_id}/home_list/{list_id}
 func (c *ClickUpClient) MoveTaskToList(ctx context.Context, taskID string, listID string) error {
-	reqURL := fmt.Sprintf("%s/task/%s", c.baseURL, taskID)
-
-	payload := map[string]interface{}{
-		"list": listID,
+	if c.config.TeamID == "" {
+		return fmt.Errorf("리스트 이동 실패: TeamID가 설정되지 않음")
 	}
 
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("페이로드 직렬화 실패: %w", err)
-	}
+	// v3 API 엔드포인트 사용
+	reqURL := fmt.Sprintf("https://api.clickup.com/api/v3/workspaces/%s/tasks/%s/home_list/%s", c.config.TeamID, taskID, listID)
 
-	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, bytes.NewReader(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, nil)
 	if err != nil {
 		return fmt.Errorf("요청 생성 실패: %w", err)
 	}

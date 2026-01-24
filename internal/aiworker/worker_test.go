@@ -137,7 +137,7 @@ func TestWorker_State(t *testing.T) {
 	}
 
 	// 처리 시작
-	worker.SetProcessing("task1")
+	worker.SetProcessing("task1", "Test Task", "ITSM-1234", "open")
 	if !worker.IsProcessing() {
 		t.Error("SetProcessing 후 processing이어야 함")
 	}
@@ -181,7 +181,7 @@ func TestWorker_CompleteTask(t *testing.T) {
 	worker := NewWorker(config, mockClient, nil, "작업중", "개발완료", "901413896178")
 
 	// 태스크 처리 중 상태 설정
-	worker.SetProcessing("task1")
+	worker.SetProcessing("task1", "Test Task", "ITSM-1234", "open")
 
 	// 완료 처리
 	ctx := context.Background()
@@ -231,7 +231,7 @@ func TestWorker_CompleteTask_NoListMove(t *testing.T) {
 	worker := NewWorker(config, mockClient, nil, "작업중", "개발완료", "") // 완료 리스트 ID 없음
 
 	// 태스크 처리 중 상태 설정
-	worker.SetProcessing("task1")
+	worker.SetProcessing("task1", "Test Task", "ITSM-1234", "open")
 
 	// 완료 처리
 	ctx := context.Background()
