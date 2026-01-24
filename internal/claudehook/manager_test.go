@@ -28,11 +28,11 @@ func TestManager_GenerateHookConfig(t *testing.T) {
 	}
 }
 
-// TestManager_GenerateCurlCommand는 curl 명령어 생성을 테스트합니다.
-func TestManager_GenerateCurlCommand(t *testing.T) {
+// TestManager_GenerateStopCurlCommand는 Stop curl 명령어 생성을 테스트합니다.
+func TestManager_GenerateStopCurlCommand(t *testing.T) {
 	manager := NewManager(8081)
 
-	cmd := manager.GenerateCurlCommand()
+	cmd := manager.GenerateStopCurlCommand()
 
 	if cmd == "" {
 		t.Error("명령어가 비어있습니다")
@@ -42,6 +42,9 @@ func TestManager_GenerateCurlCommand(t *testing.T) {
 	}
 	if !contains(cmd, "/hook/stop") {
 		t.Error("엔드포인트가 포함되어야 합니다")
+	}
+	if !contains(cmd, "@-") {
+		t.Error("stdin에서 payload를 읽어야 합니다 (@-)")
 	}
 }
 

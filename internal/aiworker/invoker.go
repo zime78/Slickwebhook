@@ -22,11 +22,22 @@ type InvokeResult struct {
 }
 
 // DefaultInvoker는 실제 Claude Code를 실행합니다.
-type DefaultInvoker struct{}
+type DefaultInvoker struct {
+	hookServerPort int
+}
 
 // NewDefaultInvoker는 새 DefaultInvoker를 생성합니다.
 func NewDefaultInvoker() *DefaultInvoker {
-	return &DefaultInvoker{}
+	return &DefaultInvoker{
+		hookServerPort: 8081, // 기본 포트
+	}
+}
+
+// NewDefaultInvokerWithPort는 지정된 Hook 서버 포트로 DefaultInvoker를 생성합니다.
+func NewDefaultInvokerWithPort(port int) *DefaultInvoker {
+	return &DefaultInvoker{
+		hookServerPort: port,
+	}
 }
 
 // InvokePlan은 Claude Code를 플랜 모드로 실행합니다.
@@ -104,13 +115,37 @@ end tell
 	return script
 }
 
-// AddTDDSuffix는 프롬프트에 TDD 문구를 추가합니다.
-// 이미 TDD 관련 내용이 있으면 추가하지 않습니다.
+// AddTDDSuffix는 프롬프트에 TDD 문구와 작업 완료 알림 지시를 추가합니다.
+// 이미 TDD 관련 내용이 있으면 TDD 문구는 추가하지 않습니다.
 func (i *DefaultInvoker) AddTDDSuffix(prompt string) string {
-	if strings.Contains(prompt, "TDD") {
-		return prompt
+	result := prompt
+
+	// TDD 문구 추가
+	if !strings.Contains(prompt, "TDD") {
+		result += "\n\nTDD 방식으로 개발 진행."
 	}
-	return prompt + "\n\nTDD 방식으로 개발 진행."
+
+	// 작업 완료 알림 지시 추가
+	result += i.GetTaskCompleteInstruction()
+
+	return result
+}
+
+// GetTaskCompleteInstruction는 작업 완료 시 알림을 보내도록 하는 프롬프트 지시를 반환합니다.
+func (i *DefaultInvoker) GetTaskCompleteInstruction() string {
+	return fmt.Sprintf(`
+
+---
+## 중요: 작업 완료 알림
+
+모든 작업이 완료되면 반드시 아래 명령을 실행하여 Slack으로 완료 알림을 보내세요:
+
+`+"```bash"+`
+curl -s -X POST http://localhost:%d/hook/task-complete -H 'Content-Type: application/json' -d '{"cwd": "'$(pwd)'", "status": "completed"}'
+`+"```"+`
+
+작업이 완료되지 않았거나 에러가 발생한 경우에는 이 명령을 실행하지 마세요.
+---`, i.hookServerPort)
 }
 
 // BuildAppleScriptWithFile는 파일에서 프롬프트를 읽어 Claude Code를 실행하는 AppleScript를 생성합니다.

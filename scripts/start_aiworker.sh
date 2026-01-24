@@ -1,8 +1,9 @@
 #!/bin/bash
 # AI Worker 시작 스크립트 (개발용)
-# 사용법: ./scripts/start_aiworker.sh
+# 사용법: ./start_aiworker.sh (scripts 폴더 내에서 실행 가능)
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 스크립트가 있는 디렉토리 기준으로 프로젝트 루트 찾기
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 echo ""
@@ -41,5 +42,21 @@ echo ""
 echo "종료하려면 Ctrl+C를 누르세요."
 echo ""
 
+# 설정 파일에서 환경변수 로드 (go run 시 임시 디렉토리 문제 해결)
+set -a
+source "$CONFIG_FILE"
+set +a
+
+# 프로젝트 루트로 이동
 cd "$PROJECT_DIR"
-go run ./cmd/ai-worker
+
+# 빌드 후 실행 (코드 변경 즉시 반영)
+echo "🔨 빌드 중..."
+go build -o ./bin/ai-worker ./cmd/ai-worker
+if [ $? -ne 0 ]; then
+    echo "❌ 빌드 실패"
+    exit 1
+fi
+
+echo "✅ 빌드 완료"
+./bin/ai-worker

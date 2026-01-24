@@ -55,9 +55,10 @@ func (m *Manager) GenerateHookConfig() map[string]interface{} {
 }
 
 // GenerateStopCurlCommand는 Stop Hook 서버로 알림을 보내는 curl 명령어를 생성합니다.
+// 표준 입력에서 JSON 페이로드를 읽어서 전달합니다 (permission_mode 등 모든 필드 포함).
 func (m *Manager) GenerateStopCurlCommand() string {
 	return fmt.Sprintf(
-		`curl -s -X POST http://localhost:%d/hook/stop -H 'Content-Type: application/json' -d '{"cwd": "'"$PWD"'"}'`,
+		`curl -s -X POST http://localhost:%d/hook/stop -H 'Content-Type: application/json' -d @-`,
 		m.hookServerPort,
 	)
 }
