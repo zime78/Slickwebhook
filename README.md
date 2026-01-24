@@ -370,3 +370,15 @@ SlickWebhook/
 ## 📄 라이선스
 
 이 프로젝트는 개인 사용 목적으로 작성되었습니다.
+
+### 의존성 라이센스
+
+| 패키지 | 라이센스 |
+|--------|----------|
+| [go-imap](https://github.com/emersion/go-imap) | MIT |
+| [go-sasl](https://github.com/emersion/go-sasl) | MIT |
+| [slack-go/slack](https://github.com/slack-go/slack) | BSD-2-Clause |
+| [go-sqlite3](https://github.com/mattn/go-sqlite3) | MIT |
+| [oauth2](https://pkg.go.dev/golang.org/x/oauth2) | BSD-3-Clause |
+| [gorilla/websocket](https://github.com/gorilla/websocket) | BSD-2-Clause |
+| [cloud.google.com/go](https://github.com/googleapis/google-cloud-go) | Apache-2.0 |
