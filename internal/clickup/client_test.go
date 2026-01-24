@@ -227,3 +227,267 @@ func TestTruncateText(t *testing.T) {
 		})
 	}
 }
+
+// TestClickUpClient_GetTasks는 리스트의 태스크 목록 조회를 테스트합니다.
+func TestClickUpClient_GetTasks(t *testing.T) {
+	// Mock 서버 설정
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 요청 검증
+		if r.Method != "GET" {
+			t.Errorf("잘못된 메서드: %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != "test-token" {
+			t.Error("Authorization 헤더가 없음")
+		}
+
+		// 쿼리 파라미터 검증
+		query := r.URL.Query()
+		if query.Get("order_by") != "created" {
+			t.Errorf("order_by 파라미터가 올바르지 않음: %s", query.Get("order_by"))
+		}
+
+		// 응답 반환
+		resp := map[string]interface{}{
+			"tasks": []map[string]interface{}{
+				{
+					"id":          "task1",
+					"name":        "첫 번째 태스크",
+					"description": "설명 1",
+					"url":         "https://app.clickup.com/t/task1",
+					"status": map[string]string{
+						"status": "Open",
+						"color":  "#d3d3d3",
+					},
+					"date_created": "1704153600000",
+					"date_updated": "1704240000000",
+					"attachments":  []interface{}{},
+				},
+				{
+					"id":          "task2",
+					"name":        "두 번째 태스크",
+					"description": "설명 2",
+					"url":         "https://app.clickup.com/t/task2",
+					"status": map[string]string{
+						"status": "In Progress",
+						"color":  "#4194f6",
+					},
+					"date_created": "1704153700000",
+					"date_updated": "1704240100000",
+					"attachments":  []interface{}{},
+				},
+			},
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	// 클라이언트 생성
+	config := Config{
+		APIToken: "test-token",
+		ListID:   "123456",
+	}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	// 태스크 목록 조회
+	opts := &GetTasksOptions{
+		OrderBy: "created",
+		Reverse: false,
+	}
+	tasks, err := client.GetTasks(context.Background(), "list123", opts)
+
+	if err != nil {
+		t.Fatalf("태스크 목록 조회 실패: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("태스크 개수 불일치: got %d, want 2", len(tasks))
+	}
+	if tasks[0].ID != "task1" {
+		t.Errorf("첫 번째 태스크 ID 불일치: %s", tasks[0].ID)
+	}
+	if tasks[1].Name != "두 번째 태스크" {
+		t.Errorf("두 번째 태스크 이름 불일치: %s", tasks[1].Name)
+	}
+}
+
+// TestClickUpClient_GetTasks_WithStatuses는 상태 필터링을 테스트합니다.
+func TestClickUpClient_GetTasks_WithStatuses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 쿼리 파라미터에서 statuses 확인
+		query := r.URL.Query()
+		statuses := query["statuses[]"]
+		if len(statuses) != 2 {
+			t.Errorf("statuses 파라미터 개수 불일치: %d", len(statuses))
+		}
+
+		resp := map[string]interface{}{
+			"tasks": []map[string]interface{}{},
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	config := Config{APIToken: "test-token", ListID: "123456"}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	opts := &GetTasksOptions{
+		Statuses: []string{"Open", "In Progress"},
+	}
+	_, err := client.GetTasks(context.Background(), "list123", opts)
+
+	if err != nil {
+		t.Fatalf("태스크 목록 조회 실패: %v", err)
+	}
+}
+
+// TestClickUpClient_GetTasks_Empty는 빈 리스트 조회를 테스트합니다.
+func TestClickUpClient_GetTasks_Empty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]interface{}{
+			"tasks": []interface{}{},
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	config := Config{APIToken: "test-token", ListID: "123456"}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	tasks, err := client.GetTasks(context.Background(), "list123", nil)
+
+	if err != nil {
+		t.Fatalf("태스크 목록 조회 실패: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Errorf("빈 리스트여야 함: got %d", len(tasks))
+	}
+}
+
+// TestClickUpClient_UpdateTaskStatus는 태스크 상태 변경을 테스트합니다.
+func TestClickUpClient_UpdateTaskStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 요청 검증
+		if r.Method != "PUT" {
+			t.Errorf("잘못된 메서드: %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != "test-token" {
+			t.Error("Authorization 헤더가 없음")
+		}
+
+		// 요청 바디 확인
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["status"] != "작업중" {
+			t.Errorf("상태 값이 올바르지 않음: %v", body["status"])
+		}
+
+		// 응답 반환
+		resp := map[string]interface{}{
+			"id":   "task123",
+			"name": "테스트 태스크",
+			"status": map[string]string{
+				"status": "작업중",
+				"color":  "#4194f6",
+			},
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	config := Config{APIToken: "test-token", ListID: "123456"}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	err := client.UpdateTaskStatus(context.Background(), "task123", "작업중")
+
+	if err != nil {
+		t.Fatalf("상태 변경 실패: %v", err)
+	}
+}
+
+// TestClickUpClient_UpdateTaskStatus_Error는 상태 변경 에러를 테스트합니다.
+func TestClickUpClient_UpdateTaskStatus_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"err": "Invalid status"}`))
+	}))
+	defer server.Close()
+
+	config := Config{APIToken: "test-token", ListID: "123456"}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	err := client.UpdateTaskStatus(context.Background(), "task123", "잘못된상태")
+
+	if err == nil {
+		t.Error("에러가 발생해야 합니다")
+	}
+}
+
+// TestClickUpClient_MoveTaskToList는 태스크 리스트 이동을 테스트합니다.
+func TestClickUpClient_MoveTaskToList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 요청 검증
+		if r.Method != "PUT" {
+			t.Errorf("잘못된 메서드: %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != "test-token" {
+			t.Error("Authorization 헤더가 없음")
+		}
+
+		// 요청 바디 확인
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["list"] != "901413896178" {
+			t.Errorf("리스트 ID가 올바르지 않음: %v", body["list"])
+		}
+
+		// 응답 반환
+		resp := map[string]interface{}{
+			"id":   "task123",
+			"name": "테스트 태스크",
+			"list": map[string]string{
+				"id":   "901413896178",
+				"name": "완료 리스트",
+			},
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	config := Config{APIToken: "test-token", ListID: "123456"}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	err := client.MoveTaskToList(context.Background(), "task123", "901413896178")
+
+	if err != nil {
+		t.Fatalf("리스트 이동 실패: %v", err)
+	}
+}
+
+// TestClickUpClient_MoveTaskToList_Error는 리스트 이동 에러를 테스트합니다.
+func TestClickUpClient_MoveTaskToList_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"err": "Invalid list"}`))
+	}))
+	defer server.Close()
+
+	config := Config{APIToken: "test-token", ListID: "123456"}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	err := client.MoveTaskToList(context.Background(), "task123", "invalid-list")
+
+	if err == nil {
+		t.Error("에러가 발생해야 합니다")
+	}
+}

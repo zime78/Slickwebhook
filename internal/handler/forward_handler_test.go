@@ -37,6 +37,22 @@ func (m *MockClickUpClient) UploadAttachment(ctx context.Context, taskID string,
 	return nil // Mock: 항상 성공
 }
 
+func (m *MockClickUpClient) GetTask(ctx context.Context, taskID string) (*clickup.Task, error) {
+	return nil, nil // Mock: 항상 nil 반환
+}
+
+func (m *MockClickUpClient) GetTasks(ctx context.Context, listID string, opts *clickup.GetTasksOptions) ([]*clickup.Task, error) {
+	return nil, nil // Mock: 항상 nil 반환
+}
+
+func (m *MockClickUpClient) UpdateTaskStatus(ctx context.Context, taskID string, status string) error {
+	return nil // Mock: 항상 성공
+}
+
+func (m *MockClickUpClient) MoveTaskToList(ctx context.Context, taskID string, listID string) error {
+	return nil // Mock: 항상 성공
+}
+
 // TestForwardHandler_Handle는 ClickUp 전송을 테스트합니다.
 func TestForwardHandler_Handle(t *testing.T) {
 	var buf bytes.Buffer

@@ -8,18 +8,21 @@ Slack 채널 및 Email(Gmail) 모니터링과 ClickUp 자동 연동 도구입니
 
 ## 🚀 주요 기능
 
-| 기능 | Slack Monitor | Email Monitor |
-|------|:-------------:|:-------------:|
-| 메시지 감지 | ✅ 채널 폴링 | ✅ IMAP 폴링 |
-| ClickUp 연동 | ✅ | ✅ |
-| 히스토리 관리 | ✅ | ✅ (SQLite) |
-| 발신자 필터 | ✅ 봇 ID | ✅ 이메일 주소 |
-| Slack 알림 | - | ✅ (선택) |
-| 크로스 플랫폼 | ✅ | ✅ |
+| 기능 | Slack Monitor | Email Monitor | AI Worker |
+|------|:-------------:|:-------------:|:---------:|
+| 메시지 감지 | ✅ 채널 폴링 | ✅ IMAP 폴링 | ✅ Webhook |
+| ClickUp 연동 | ✅ | ✅ | ✅ |
+| 히스토리 관리 | ✅ | ✅ (SQLite) | - |
+| 발신자 필터 | ✅ 봇 ID | ✅ 이메일 주소 | - |
+| Slack 알림 | - | ✅ (선택) | ✅ (완료 시) |
+| Claude Code 연동 | - | - | ✅ 자동 실행 |
+| 크로스 플랫폼 | ✅ | ✅ | macOS 전용 |
 
 ---
 
 ## 📐 아키텍처
+
+### Slack/Email Monitor
 
 ```
 ┌─────────────────┐    ┌─────────────────┐
@@ -39,6 +42,34 @@ Slack 채널 및 Email(Gmail) 모니터링과 ClickUp 자동 연동 도구입니
     ▼               ▼               ▼
  ClickUp        History       Slack 알림
  (Task 생성)   (JSON/SQLite)   (Email 전용)
+```
+
+### AI Worker
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      AI Worker Service                       │
+├─────────────────────────────────────────────────────────────┤
+│  ClickUp Webhook ──→ Webhook Server ──→ 리스트별 라우팅     │
+│                              │                               │
+│           ┌──────────────────┼──────────────────┐           │
+│           ▼                  ▼                  ▼           │
+│      Worker 1           Worker 2           Worker 3/4       │
+│      (AI_01)            (AI_02)            (AI_03/04)       │
+│           │                  │                  │           │
+│           ▼                  ▼                  ▼           │
+│      Claude Code        Claude Code        Claude Code      │
+│      (터미널 1)         (터미널 2)         (터미널 3/4)     │
+│           │                  │                  │           │
+│           └──────────────────┼──────────────────┘           │
+│                              ▼                               │
+│                    Hook Server (완료 수신)                   │
+│                              │                               │
+│              ┌───────────────┴───────────────┐              │
+│              ▼                               ▼              │
+│      ClickUp 상태 변경              Slack 알림 전송         │
+│      ("개발완료")                   (제목, 링크)            │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 > 📖 상세 아키텍처는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)를 참고하세요.
@@ -98,6 +129,27 @@ CLICKUP_LIST_ID=your_list_id
 
 > 📧 Gmail OAuth 설정 방법은 [Gmail OAuth 설정 가이드](#-gmail-oauth-설정)를 참고하세요.
 
+### 4. AI Worker (macOS 전용)
+
+```bash
+# 빌드
+make build-ai-worker
+
+# 설정 편집 (config.email.ini에 추가)
+AI_01_LIST_ID=901414115524
+AI_01_SRC_PATH=/path/to/project1
+WEBHOOK_PORT=8080
+HOOK_SERVER_PORT=8081
+
+# 실행
+./scripts/start_aiworker.sh
+
+# ngrok으로 Webhook URL 외부 노출 (별도 터미널)
+./scripts/setup_ngrok.sh
+```
+
+> 🤖 AI Worker는 ClickUp AI 리스트의 태스크를 감지하여 Claude Code를 자동 실행합니다. 상세 설정은 [CLAUDE.md](CLAUDE.md#ai-worker-사용-가이드)를 참고하세요.
+
 ---
 
 ## 📦 파일 구조
@@ -106,9 +158,8 @@ CLICKUP_LIST_ID=your_list_id
 SlickWebhook/
 ├── cmd/
 │   ├── slack-monitor/         # Slack Monitor 진입점
-│   │   └── main.go
-│   └── email-monitor/         # Email Monitor 진입점
-│       └── main.go
+│   ├── email-monitor/         # Email Monitor 진입점
+│   └── ai-worker/             # AI Worker 진입점
 ├── internal/
 │   ├── clickup/               # ClickUp API 클라이언트 (공통)
 │   ├── config/                # 설정 로더 (공통)
@@ -119,12 +170,15 @@ SlickWebhook/
 │   ├── monitor/               # Slack 모니터 서비스
 │   ├── slack/                 # Slack API 클라이언트
 │   ├── emailmonitor/          # Email 모니터 서비스
-│   └── gmail/                 # Gmail IMAP 클라이언트
+│   ├── gmail/                 # Gmail IMAP 클라이언트
+│   ├── aiworker/              # AI Worker 핵심 모듈
+│   ├── webhook/               # ClickUp Webhook 서버
+│   ├── hookserver/            # Claude Code Hook 수신
+│   └── claudehook/            # Claude Code 설정 관리
 ├── docs/                      # 문서
 │   ├── ARCHITECTURE.md        # 아키텍처 문서
 │   └── CONTRIBUTING.md        # 기여 가이드
 ├── scripts/                   # 유틸리티 스크립트
-│   └── com.slickwebhook.monitor.plist  # macOS launchd 설정
 ├── _config.ini                # Slack Monitor 설정 템플릿
 ├── _config.email.ini          # Email Monitor 설정 템플릿
 ├── Makefile                   # 빌드/테스트 명령
@@ -141,9 +195,8 @@ SlickWebhook/
 |--------|------|
 | `make build-slack` | Slack Monitor 빌드 |
 | `make build-email` | Email Monitor 빌드 |
-| `make build-slack-all` | Slack Monitor 전 플랫폼 빌드 |
-| `make build-email-all` | Email Monitor 전 플랫폼 빌드 |
-| `make build-all` | 모든 플랫폼 빌드 (Slack + Email) |
+| `make build-ai-worker` | AI Worker 빌드 |
+| `make build-all` | 전체 플랫폼 빌드 (darwin/linux/windows) |
 
 ### 실행 및 테스트
 
@@ -151,6 +204,7 @@ SlickWebhook/
 |--------|------|
 | `make run-slack` | Slack Monitor 실행 |
 | `make run-email` | Email Monitor 실행 |
+| `make run-ai-worker` | AI Worker 실행 |
 | `make test` | 테스트 실행 |
 | `make test-cover` | 커버리지 포함 테스트 |
 
@@ -162,6 +216,52 @@ SlickWebhook/
 | `make uninstall` | macOS 서비스 제거 |
 | `make status` | 서비스 상태 확인 |
 | `make restart` | 서비스 재시작 |
+
+---
+
+## 📜 스크립트 (scripts/)
+
+### 설치 스크립트
+
+| 스크립트 | 설명 |
+|----------|------|
+| `install_macos.sh` | Slack Monitor macOS 서비스 설치 |
+| `install_email_macos.sh` | Email Monitor macOS 서비스 설치 |
+| `install_aiworker_macos.sh` | AI Worker macOS 서비스 설치 |
+
+### 시작/중지 스크립트
+
+```bash
+# 개발 모드 실행
+./scripts/start_slack_monitor.sh
+./scripts/start_email_monitor.sh
+./scripts/start_aiworker.sh
+
+# 서비스 중지
+./scripts/stop_slack_monitor.sh
+./scripts/stop_email_monitor.sh
+./scripts/stop_aiworker.sh
+./scripts/stop_all.sh              # 전체 중지
+```
+
+### 관리 스크립트
+
+| 스크립트 | 설명 |
+|----------|------|
+| `status_all.sh` | 전체 서비스 상태 확인 |
+| `logs.sh [service]` | 로그 확인 (slack/email/aiworker/all) |
+| `build_all.sh [platform]` | 전체 빌드 (current/darwin/linux/windows/all) |
+| `uninstall_all.sh` | 전체 서비스 제거 |
+| `setup_ngrok.sh` | ngrok 터널 설정 (AI Worker Webhook용) |
+
+### 테스트 스크립트
+
+| 스크립트 | 설명 |
+|----------|------|
+| `test_aiworker_webhook.sh` | AI Worker Webhook 테스트 |
+| `test_hook_server.sh` | Hook Server (Claude Code Stop) 테스트 |
+| `send_slack_test.sh` | Slack 메시지 전송 테스트 |
+| `test_clickup_agent_trigger.sh` | ClickUp Agent 트리거 테스트 |
 
 ---
 
@@ -209,6 +309,24 @@ SlickWebhook/
 | `CLICKUP_LIST_ID` | | 태스크 생성할 리스트 ID |
 | `JIRA_BASE_URL` | | Jira 이슈 링크 생성용 (예: `https://example.atlassian.net`) |
 | `HISTORY_MAX_SIZE` | | 히스토리 최대 개수 (기본: `100`) |
+
+### AI Worker (config.email.ini)
+
+| 변수명 | 필수 | 설명 |
+|--------|:----:|------|
+| `AI_01_LIST_ID` | ✅ | Worker 1 ClickUp 리스트 ID |
+| `AI_01_SRC_PATH` | ✅ | Worker 1 프로젝트 경로 |
+| `AI_02_LIST_ID` | | Worker 2 ClickUp 리스트 ID |
+| `AI_02_SRC_PATH` | | Worker 2 프로젝트 경로 |
+| `AI_03_LIST_ID` | | Worker 3 ClickUp 리스트 ID |
+| `AI_03_SRC_PATH` | | Worker 3 프로젝트 경로 |
+| `AI_04_LIST_ID` | | Worker 4 ClickUp 리스트 ID |
+| `AI_04_SRC_PATH` | | Worker 4 프로젝트 경로 |
+| `WEBHOOK_PORT` | | Webhook 서버 포트 (기본: `8080`) |
+| `HOOK_SERVER_PORT` | | Hook 서버 포트 (기본: `8081`) |
+| `AI_STATUS_WORKING` | | 작업중 상태명 (기본: `작업중`) |
+| `AI_STATUS_COMPLETED` | | 완료 상태명 (기본: `개발완료`) |
+| `AI_COMPLETED_LIST_ID` | | 완료된 태스크 이동 리스트 ID |
 
 ---
 

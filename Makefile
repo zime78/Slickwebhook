@@ -1,11 +1,12 @@
 # SlickWebhook Makefile
 # Slack 채널 모니터링 및 Email 모니터링 서비스 빌드 및 테스트
 
-.PHONY: all build test run clean build-all install uninstall build-slack build-email
+.PHONY: all build test run clean build-all install uninstall build-slack build-email build-ai-worker
 
 # Go 바이너리 이름
 SLACK_BINARY=slack-monitor
 EMAIL_BINARY=email-monitor
+AI_WORKER_BINARY=ai-worker
 VERSION?=1.0.0
 BUILD_DIR=build
 
@@ -41,6 +42,20 @@ run-email:
 	go run ./cmd/email-monitor
 
 # ============================================
+# AI Worker 빌드
+# ============================================
+
+# AI Worker - 현재 플랫폼 빌드
+build-ai-worker:
+	@echo "🤖 AI Worker 빌드 중..."
+	go build -ldflags="-s -w" -o $(AI_WORKER_BINARY) ./cmd/ai-worker
+
+# AI Worker 실행 (환경변수 필요)
+run-ai-worker:
+	@echo "🤖 AI Worker 서비스 실행..."
+	go run ./cmd/ai-worker
+
+# ============================================
 # 테스트
 # ============================================
 
@@ -61,7 +76,7 @@ test-cover:
 # 빌드 파일 정리
 clean:
 	@echo "🧹 정리 중..."
-	rm -f $(SLACK_BINARY) $(EMAIL_BINARY)
+	rm -f $(SLACK_BINARY) $(EMAIL_BINARY) $(AI_WORKER_BINARY)
 	rm -rf $(BUILD_DIR)
 	go clean
 
