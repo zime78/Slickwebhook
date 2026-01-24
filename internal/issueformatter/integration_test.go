@@ -10,13 +10,12 @@ import (
 )
 
 // TestIntegration_RealAPI는 실제 ClickUp API를 사용한 통합 테스트입니다.
-// 실행: go test ./internal/issueformatter/... -v -run TestIntegration
+// 실행: CLICKUP_API_TOKEN=pk_xxx go test ./internal/issueformatter/... -v -run TestIntegration
 func TestIntegration_RealAPI(t *testing.T) {
 	// API 토큰이 없으면 스킵
 	apiToken := os.Getenv("CLICKUP_API_TOKEN")
 	if apiToken == "" {
-		// 기본 토큰 사용 (테스트용)
-		apiToken = "pk_288777246_1GM6YKJ3M5OMFZD8J31NZWR0XOAZZ6NM"
+		t.Skip("CLICKUP_API_TOKEN 환경변수가 설정되지 않아 통합 테스트를 건너뜁니다")
 	}
 
 	// ClickUp 클라이언트 생성
@@ -72,8 +71,12 @@ func TestIntegration_RealAPI(t *testing.T) {
 }
 
 // TestIntegration_PrintOutput은 결과를 콘솔에 출력합니다.
+// 실행: CLICKUP_API_TOKEN=pk_xxx go test ./internal/issueformatter/... -v -run TestIntegration_PrintOutput
 func TestIntegration_PrintOutput(t *testing.T) {
-	apiToken := "pk_288777246_1GM6YKJ3M5OMFZD8J31NZWR0XOAZZ6NM"
+	apiToken := os.Getenv("CLICKUP_API_TOKEN")
+	if apiToken == "" {
+		t.Skip("CLICKUP_API_TOKEN 환경변수가 설정되지 않아 통합 테스트를 건너뜁니다")
+	}
 
 	clickupConfig := clickup.Config{
 		APIToken: apiToken,

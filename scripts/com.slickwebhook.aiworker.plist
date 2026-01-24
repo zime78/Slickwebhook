@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 서비스 식별자 -->
+    <key>Label</key>
+    <string>com.slickwebhook.aiworker</string>
+
+    <!-- 실행 파일 경로 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/ai-worker</string>
+    </array>
+
+    <!-- 환경변수 (config.email.ini에서 로드하지만 백업용) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- ClickUp 설정 -->
+        <key>CLICKUP_API_TOKEN</key>
+        <string>pk_your_token</string>
+
+        <!-- AI 리스트 설정 (4개 병렬) -->
+        <key>AI_01_LIST_ID</key>
+        <string>901414115524</string>
+        <key>AI_01_SRC_PATH</key>
+        <string>/Users/REPLACE_WITH_USERNAME/screen_get/SynologyDrive/screen_get_new/q_na_aos</string>
+
+        <key>AI_02_LIST_ID</key>
+        <string>901414115581</string>
+        <key>AI_02_SRC_PATH</key>
+        <string>/Users/REPLACE_WITH_USERNAME/screen_get/SynologyDrive/screen_get_new/q_na_aos</string>
+
+        <key>AI_03_LIST_ID</key>
+        <string>901414115582</string>
+        <key>AI_03_SRC_PATH</key>
+        <string>/Users/REPLACE_WITH_USERNAME/screen_get/SynologyDrive/screen_get_new/q_na_aos</string>
+
+        <key>AI_04_LIST_ID</key>
+        <string>901414115583</string>
+        <key>AI_04_SRC_PATH</key>
+        <string>/Users/REPLACE_WITH_USERNAME/screen_get/SynologyDrive/screen_get_new/q_na_aos</string>
+
+        <!-- 서버 포트 -->
+        <key>WEBHOOK_PORT</key>
+        <string>8080</string>
+        <key>HOOK_SERVER_PORT</key>
+        <string>8081</string>
+
+        <!-- 상태명 -->
+        <key>AI_STATUS_WORKING</key>
+        <string>작업중</string>
+        <key>AI_STATUS_COMPLETED</key>
+        <string>개발완료</string>
+
+        <!-- Slack 설정 (알림용) -->
+        <key>SLACK_BOT_TOKEN</key>
+        <string>xoxb-your-bot-token</string>
+        <key>SLACK_CHANNEL_ID</key>
+        <string>C0A5ZTLNWA3</string>
+    </dict>
+
+    <!-- 로그인 시 자동 시작 -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- 종료 시 자동 재시작 -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- 로그 파일 -->
+    <key>StandardOutPath</key>
+    <string>/Users/REPLACE_WITH_USERNAME/.slickwebhook/aiworker.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/REPLACE_WITH_USERNAME/.slickwebhook/aiworker.error.log</string>
+
+    <!-- 작업 디렉토리 -->
+    <key>WorkingDirectory</key>
+    <string>/Users/REPLACE_WITH_USERNAME/.slickwebhook</string>
+</dict>
+</plist>

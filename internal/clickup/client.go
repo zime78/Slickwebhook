@@ -20,6 +20,22 @@ type Client interface {
 	CreateTask(ctx context.Context, msg *domain.Message) (*TaskResponse, error)
 	UploadAttachment(ctx context.Context, taskID string, filename string, data []byte) error
 	GetTask(ctx context.Context, taskID string) (*Task, error)
+	GetTasks(ctx context.Context, listID string, opts *GetTasksOptions) ([]*Task, error)
+	UpdateTaskStatus(ctx context.Context, taskID string, status string) error
+	MoveTaskToList(ctx context.Context, taskID string, listID string) error
+}
+
+// GetTasksOptions는 태스크 목록 조회 옵션입니다.
+type GetTasksOptions struct {
+	OrderBy       string   // 정렬 기준: "created", "updated", "due_date"
+	Reverse       bool     // true면 오름차순 (오래된 순)
+	Statuses      []string // 필터링할 상태 목록
+	IncludeClosed bool     // 완료된 태스크 포함 여부
+}
+
+// GetTasksResponse는 태스크 목록 조회 응답입니다.
+type GetTasksResponse struct {
+	Tasks []*Task `json:"tasks"`
 }
 
 // TaskResponse는 ClickUp 태스크 생성 응답입니다.
@@ -359,6 +375,131 @@ func (c *ClickUpClient) UploadAttachment(ctx context.Context, taskID string, fil
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("업로드 오류 (status=%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+// GetTasks는 리스트의 태스크 목록을 조회합니다.
+// API: GET /api/v2/list/{list_id}/task
+func (c *ClickUpClient) GetTasks(ctx context.Context, listID string, opts *GetTasksOptions) ([]*Task, error) {
+	reqURL := fmt.Sprintf("%s/list/%s/task", c.baseURL, listID)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("요청 생성 실패: %w", err)
+	}
+
+	// 쿼리 파라미터 구성
+	q := req.URL.Query()
+	if opts != nil {
+		if opts.OrderBy != "" {
+			q.Set("order_by", opts.OrderBy)
+		}
+		if opts.Reverse {
+			q.Set("reverse", "true")
+		}
+		for _, status := range opts.Statuses {
+			q.Add("statuses[]", status)
+		}
+		if opts.IncludeClosed {
+			q.Set("include_closed", "true")
+		}
+	}
+	req.URL.RawQuery = q.Encode()
+
+	req.Header.Set("Authorization", c.config.APIToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("API 호출 실패: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("응답 읽기 실패: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API 에러 (상태코드: %d): %s", resp.StatusCode, string(body))
+	}
+
+	var tasksResp GetTasksResponse
+	if err := json.Unmarshal(body, &tasksResp); err != nil {
+		return nil, fmt.Errorf("응답 파싱 실패: %w", err)
+	}
+
+	return tasksResp.Tasks, nil
+}
+
+// UpdateTaskStatus는 태스크의 상태를 변경합니다.
+// API: PUT /api/v2/task/{task_id}
+func (c *ClickUpClient) UpdateTaskStatus(ctx context.Context, taskID string, status string) error {
+	reqURL := fmt.Sprintf("%s/task/%s", c.baseURL, taskID)
+
+	payload := map[string]interface{}{
+		"status": status,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("페이로드 직렬화 실패: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return fmt.Errorf("요청 생성 실패: %w", err)
+	}
+
+	req.Header.Set("Authorization", c.config.APIToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("API 호출 실패: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API 에러 (상태코드: %d): %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// MoveTaskToList는 태스크를 다른 리스트로 이동합니다.
+// API: PUT /api/v2/task/{task_id}
+func (c *ClickUpClient) MoveTaskToList(ctx context.Context, taskID string, listID string) error {
+	reqURL := fmt.Sprintf("%s/task/%s", c.baseURL, taskID)
+
+	payload := map[string]interface{}{
+		"list": listID,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("페이로드 직렬화 실패: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return fmt.Errorf("요청 생성 실패: %w", err)
+	}
+
+	req.Header.Set("Authorization", c.config.APIToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("API 호출 실패: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API 에러 (상태코드: %d): %s", resp.StatusCode, string(body))
 	}
 
 	return nil
