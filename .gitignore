@@ -22,3 +22,5 @@ postman/*_environment.json
 email_history.json
 processed_emails.db
 jira_issues.db
+ai-worker
+bin/
