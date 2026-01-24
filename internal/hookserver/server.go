@@ -12,10 +12,11 @@ import (
 
 // Server는 Claude Code Hook을 수신하는 HTTP 서버입니다.
 type Server struct {
-	port       int
-	callback   HookCallback
-	httpServer *http.Server
-	logger     *log.Logger
+	port               int
+	callback           HookCallback
+	sessionEndCallback SessionEndCallback
+	httpServer         *http.Server
+	logger             *log.Logger
 }
 
 // NewServer는 새 Hook 서버를 생성합니다.
@@ -31,10 +32,16 @@ func (s *Server) SetLogger(logger *log.Logger) {
 	s.logger = logger
 }
 
+// SetSessionEndCallback은 SessionEnd 콜백을 설정합니다.
+func (s *Server) SetSessionEndCallback(callback SessionEndCallback) {
+	s.sessionEndCallback = callback
+}
+
 // Start는 서버를 시작합니다.
 func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/hook/stop", s.handleHook)
+	mux.HandleFunc("/hook/session-end", s.handleSessionEnd)
 	mux.HandleFunc("/health", s.healthHandler)
 
 	addr := fmt.Sprintf(":%d", s.port)
@@ -112,6 +119,60 @@ func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+// handleSessionEnd는 SessionEnd Hook 요청을 처리합니다.
+func (s *Server) handleSessionEnd(w http.ResponseWriter, r *http.Request) {
+	// POST 메서드만 허용
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 페이로드 읽기
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.logError("SessionEnd 페이로드 읽기 실패: %v", err)
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// 페이로드 파싱
+	var payload SessionEndPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		s.logError("SessionEnd 페이로드 파싱 실패: %v", err)
+		http.Error(w, "Failed to parse payload", http.StatusBadRequest)
+		return
+	}
+
+	// 종료 사유 로깅
+	reasonDesc := s.getReasonDescription(payload.Reason)
+	s.logInfo("SessionEnd 수신: cwd=%s, reason=%s (%s)", payload.Cwd, payload.Reason, reasonDesc)
+
+	// 콜백 호출
+	if s.sessionEndCallback != nil {
+		s.sessionEndCallback(&payload)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// getReasonDescription은 종료 사유에 대한 설명을 반환합니다.
+func (s *Server) getReasonDescription(reason string) string {
+	switch reason {
+	case ReasonClear:
+		return "세션 삭제"
+	case ReasonLogout:
+		return "로그아웃"
+	case ReasonPromptInputExit:
+		return "사용자 취소"
+	case ReasonOther:
+		return "정상 종료"
+	default:
+		return "알 수 없음"
+	}
 }
 
 // healthHandler는 헬스체크 엔드포인트입니다.

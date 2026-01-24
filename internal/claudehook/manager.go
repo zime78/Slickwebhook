@@ -21,17 +21,30 @@ func NewManager(hookServerPort int) *Manager {
 
 // GenerateHookConfig는 Claude Code Hook 설정을 생성합니다.
 func (m *Manager) GenerateHookConfig() map[string]interface{} {
-	curlCommand := m.GenerateCurlCommand()
+	stopCurlCommand := m.GenerateStopCurlCommand()
+	sessionEndCurlCommand := m.GenerateSessionEndCurlCommand()
 
 	return map[string]interface{}{
 		"hooks": map[string]interface{}{
 			"Stop": []interface{}{
 				map[string]interface{}{
-					"matcher": map[string]interface{}{},
+					"matcher": "",
 					"hooks": []interface{}{
 						map[string]interface{}{
 							"type":    "command",
-							"command": curlCommand,
+							"command": stopCurlCommand,
+							"timeout": 5000,
+						},
+					},
+				},
+			},
+			"SessionEnd": []interface{}{
+				map[string]interface{}{
+					"matcher": "",
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": sessionEndCurlCommand,
 							"timeout": 5000,
 						},
 					},
@@ -41,10 +54,19 @@ func (m *Manager) GenerateHookConfig() map[string]interface{} {
 	}
 }
 
-// GenerateCurlCommand는 Hook 서버로 알림을 보내는 curl 명령어를 생성합니다.
-func (m *Manager) GenerateCurlCommand() string {
+// GenerateStopCurlCommand는 Stop Hook 서버로 알림을 보내는 curl 명령어를 생성합니다.
+func (m *Manager) GenerateStopCurlCommand() string {
 	return fmt.Sprintf(
 		`curl -s -X POST http://localhost:%d/hook/stop -H 'Content-Type: application/json' -d '{"cwd": "'"$PWD"'"}'`,
+		m.hookServerPort,
+	)
+}
+
+// GenerateSessionEndCurlCommand는 SessionEnd Hook 서버로 알림을 보내는 curl 명령어를 생성합니다.
+// 표준 입력에서 JSON 페이로드를 읽어서 전달합니다.
+func (m *Manager) GenerateSessionEndCurlCommand() string {
+	return fmt.Sprintf(
+		`curl -s -X POST http://localhost:%d/hook/session-end -H 'Content-Type: application/json' -d @-`,
 		m.hookServerPort,
 	)
 }
