@@ -91,13 +91,14 @@ func (h *WarpTerminalHandler) GetType() TerminalType {
 func (h *WarpTerminalHandler) BuildInvokeScript(workDir, promptFilePath, workerID string) string {
 	// Warp에서 새 창을 열고 탭 타이틀 설정 후 명령어 실행
 	// ANSI escape sequence로 탭 타이틀 설정: \033]0;TITLE\007
+	// 연속 Worker 실행 시 탭 충돌 방지를 위해 충분한 딜레이 적용
 	return fmt.Sprintf(`
 do shell script "open -a Warp '%s'"
-delay 1
+delay 5
 tell application "System Events"
 	tell process "Warp"
 		keystroke "t" using {command down}
-		delay 0.3
+		delay 5
 		keystroke "echo -ne '\\033]0;%s\\007' && cd '%s' && cat '%s' | claude --permission-mode plan && rm -f '%s'"
 		keystroke return
 	end tell
