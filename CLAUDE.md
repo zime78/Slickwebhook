@@ -21,6 +21,9 @@ make run-slack          # Slack Monitor 실행
 make run-email          # Email Monitor 실행
 make run-ai-worker      # AI Worker 실행
 
+# 릴리즈
+./scripts/release.sh v1.0.0    # 릴리즈 생성 (GitHub Actions 자동 빌드)
+
 # 정리
 make clean              # 빌드 파일 정리
 ```
@@ -148,14 +151,35 @@ AI_COMPLETED_LIST_ID=901413896178
 ### 2. 실행 방법
 
 ```bash
-# 1) AI Worker 시작
+# AI Worker 포그라운드 실행 (개발 모드)
 ./scripts/start_aiworker.sh
 
-# 2) ngrok으로 Webhook URL 외부 노출 (별도 터미널)
+# AI Worker 백그라운드 실행 (운영 모드)
+./scripts/start_aiworker.sh --bg
+```
+
+#### 백그라운드 실행
+
+| 명령어 | 설명 |
+| ------ | ---- |
+| `./scripts/start_aiworker.sh --bg` | 백그라운드로 시작 |
+| `./scripts/stop_aiworker.sh` | 종료 |
+| `tail -f logs/aiworker.log` | 로그 실시간 확인 |
+
+**로그 로테이션 설정** (자동 적용):
+
+- 파일 위치: `logs/aiworker.log`
+- 최대 크기: 100MB
+- 보관 개수: 5개
+- 보관 기간: 30일
+- 압축: gzip
+
+```bash
+# ngrok으로 Webhook URL 외부 노출 (별도 터미널)
 ./scripts/setup_ngrok.sh
 # → https://xxxx.ngrok-free.app 형태의 URL 생성
 
-# 3) ClickUp에 Webhook 등록 (최초 1회)
+# ClickUp에 Webhook 등록 (최초 1회)
 curl -X POST "https://api.clickup.com/api/v2/team/{TEAM_ID}/webhook" \
   -H "Authorization: {CLICKUP_API_TOKEN}" \
   -H "Content-Type: application/json" \
@@ -230,6 +254,135 @@ AI Worker 시작 시 자동으로 `~/.claude/settings.json`에 Hook 설정 추�
 - **ngrok 필수**: ClickUp Webhook은 외부 URL 필요
 - **Claude Code 설치 필수**: `claude` 명령어가 PATH에 있어야 함
 - **4개 병렬 제한**: 각 리스트당 1개 Worker, 동시 4개 태스크 처리
+
+### 7. 릴리즈 배포
+
+#### 개발자용: 새 버전 릴리즈
+
+```bash
+# 릴리즈 생성 (테스트 → 태그 → GitHub Actions 자동 빌드)
+./scripts/release.sh v1.0.0
+```
+
+#### 개발자용: 업데이트
+
+```bash
+./scripts/update_aiworker.sh           # Git pull + 빌드
+./scripts/update_aiworker.sh --release  # GitHub Releases 다운로드
+```
+
+---
+
+### 8. 사용자 설치 가이드 (배포 버전)
+
+처음 사용하는 분을 위한 상세 가이드입니다.
+
+#### Step 1: 작업 폴더 생성
+
+```bash
+# 홈 디렉토리에 폴더 생성
+mkdir -p ~/ai-worker
+cd ~/ai-worker
+```
+
+#### Step 2: 바이너리 다운로드
+
+**macOS Apple Silicon (M1/M2/M3):**
+
+```bash
+curl -L -o ai-worker https://github.com/zime78/SlickWebhook/releases/latest/download/ai-worker-darwin-arm64
+chmod +x ai-worker
+```
+
+**macOS Intel:**
+
+```bash
+curl -L -o ai-worker https://github.com/zime78/SlickWebhook/releases/latest/download/ai-worker-darwin-amd64
+chmod +x ai-worker
+```
+
+**Linux x86:**
+
+```bash
+curl -L -o ai-worker https://github.com/zime78/SlickWebhook/releases/latest/download/ai-worker-linux-amd64
+chmod +x ai-worker
+```
+
+#### Step 3: 설정 파일 생성
+
+```bash
+# 설정 파일 다운로드
+curl -L -o config.email.ini https://raw.githubusercontent.com/zime78/SlickWebhook/main/_config.email.ini
+```
+
+설정 파일을 열어 필수 항목을 수정합니다:
+
+```bash
+nano config.email.ini   # 또는 원하는 편집기 사용
+```
+
+> **중요**: `config.email.ini` 파일은 반드시 `ai-worker` 바이너리와 **같은 폴더**에 있어야 합니다.
+
+**필수 설정 항목:**
+
+| 항목 | 설명 |
+|------|------|
+| `CLICKUP_API_TOKEN` | ClickUp API 토큰 |
+| `CLICKUP_TEAM_ID` | ClickUp 팀 ID |
+| `SLACK_BOT_TOKEN` | Slack Bot 토큰 |
+| `SLACK_NOTIFY_CHANNEL` | Slack 알림 채널 ID |
+| `AI_01_LIST_ID` | 모니터링할 ClickUp 리스트 ID |
+| `AI_01_SRC_PATH` | Claude Code 실행 경로 |
+
+#### Step 4: 테스트 실행 (포그라운드)
+
+```bash
+./ai-worker
+```
+
+> 정상 동작하면 "AI Worker 시작..." 메시지가 표시됩니다.
+> 종료하려면 `Ctrl+C`를 누르세요.
+
+#### Step 5: 백그라운드 실행 (실제 운영)
+
+```bash
+LOG_TO_FILE=1 nohup ./ai-worker > /dev/null 2>&1 &
+```
+
+> **명령어 설명:**
+>
+> - `LOG_TO_FILE=1` : 로그를 파일로 저장 (logs/aiworker.log)
+> - `nohup` : 터미널 종료해도 프로세스 유지
+> - `> /dev/null 2>&1` : 터미널 출력 숨김 (로그는 파일로 저장됨)
+> - `&` : 백그라운드 실행
+
+**로그 확인:**
+
+```bash
+tail -f logs/aiworker.log
+```
+
+**종료:**
+
+```bash
+pkill ai-worker
+```
+
+#### Step 6: 업데이트
+
+새 버전이 릴리즈되면:
+
+```bash
+# 1) 종료
+pkill ai-worker
+
+# 2) 새 버전 다운로드
+curl -L -o ai-worker https://github.com/zime78/SlickWebhook/releases/latest/download/ai-worker-darwin-arm64
+chmod +x ai-worker
+
+# 3) 재시작
+LOG_TO_FILE=1 nohup ./ai-worker > /dev/null 2>&1 &
+```
 
 ## 언어 정책
 

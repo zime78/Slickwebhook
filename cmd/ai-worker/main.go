@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -19,10 +20,28 @@ import (
 	"github.com/zime/slickwebhook/internal/issueformatter"
 	"github.com/zime/slickwebhook/internal/slack"
 	"github.com/zime/slickwebhook/internal/webhook"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func main() {
-	logger := log.New(os.Stdout, "", log.LstdFlags)
+	// 로거 설정 (LOG_TO_FILE 환경변수로 파일 로깅 활성화)
+	var logWriter io.Writer = os.Stdout
+
+	if os.Getenv("LOG_TO_FILE") == "1" {
+		exeDir, _ := filepath.Abs(".")
+		logDir := filepath.Join(exeDir, "logs")
+		os.MkdirAll(logDir, 0755)
+
+		logWriter = &lumberjack.Logger{
+			Filename:   filepath.Join(logDir, "aiworker.log"),
+			MaxSize:    100, // MB
+			MaxBackups: 5,   // 파일 개수
+			MaxAge:     30,  // 일
+			Compress:   true,
+		}
+	}
+
+	logger := log.New(logWriter, "", log.LstdFlags)
 	logger.Println("[AI Worker] 시작...")
 
 	// 설정 파일 로드
@@ -93,21 +112,31 @@ func main() {
 
 		workerID := worker.GetConfig().ID
 
-		// transcript 파일에서 Stop 원인 분석
+		// Plan 모드면 transcript 분석 없이 바로 알림 전송
+		// (Claude Code 2.1.19+ 버그: plan 모드 Stop Hook에서 transcript_path가 비어있음)
+		if payload.PermissionMode == "plan" {
+			logger.Printf("[AI Worker] Plan 모드 Stop 감지 - Slack 알림 전송")
+			planPayload := &hookserver.PlanReadyPayload{
+				Cwd:       payload.Cwd,
+				PlanTitle: "계획 수립 완료",
+			}
+			sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, planPayload)
+			return
+		}
+
+		// transcript 파일에서 Stop 원인 분석 (plan 모드가 아닌 경우)
 		stopReason := analyzeStopReason(payload.TranscriptPath, logger)
 		logger.Printf("[AI Worker] Stop 원인 분석: %s", stopReason)
 
 		switch stopReason {
 		case StopReasonPlanReady:
-			// Plan 완료 - 검토 요청 알림
-			if payload.PermissionMode == "plan" {
-				logger.Printf("[AI Worker] Plan 완료 감지 - Slack 알림 전송")
-				planPayload := &hookserver.PlanReadyPayload{
-					Cwd:       payload.Cwd,
-					PlanTitle: "계획 수립 완료",
-				}
-				sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, planPayload)
+			// Plan 완료 - 검토 요청 알림 (fallback)
+			logger.Printf("[AI Worker] Plan 완료 감지 (transcript) - Slack 알림 전송")
+			planPayload := &hookserver.PlanReadyPayload{
+				Cwd:       payload.Cwd,
+				PlanTitle: "계획 수립 완료",
 			}
+			sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, planPayload)
 
 		case StopReasonRateLimit:
 			// Rate Limit 알림
