@@ -66,35 +66,45 @@ func TestDefaultInvoker_BuildAppleScript(t *testing.T) {
 	}
 }
 
-// TestDefaultInvoker_AddTDDSuffix는 TDD 문구 추가를 테스트합니다.
+// TestDefaultInvoker_AddTDDSuffix는 TDD 문구와 작업 완료 알림 지시 추가를 테스트합니다.
 func TestDefaultInvoker_AddTDDSuffix(t *testing.T) {
 	invoker := NewDefaultInvoker()
 
-	tests := []struct {
-		name     string
-		prompt   string
-		expected string
-	}{
-		{
-			name:     "일반 프롬프트",
-			prompt:   "버그 수정",
-			expected: "버그 수정\n\nTDD 방식으로 개발 진행.",
-		},
-		{
-			name:     "이미 TDD 포함",
-			prompt:   "TDD 방식으로 개발 진행해주세요",
-			expected: "TDD 방식으로 개발 진행해주세요", // 중복 추가 안함
-		},
-	}
+	t.Run("일반 프롬프트", func(t *testing.T) {
+		prompt := "버그 수정"
+		result := invoker.AddTDDSuffix(prompt)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := invoker.AddTDDSuffix(tt.prompt)
-			if result != tt.expected {
-				t.Errorf("결과 불일치: got %s, want %s", result, tt.expected)
-			}
-		})
-	}
+		// TDD 문구가 추가되어야 함
+		if !strings.Contains(result, "TDD 방식으로 개발 진행") {
+			t.Error("TDD 문구가 포함되어야 함")
+		}
+
+		// 원본 프롬프트도 포함되어야 함
+		if !strings.Contains(result, "버그 수정") {
+			t.Error("원본 프롬프트가 포함되어야 함")
+		}
+
+		// 작업 완료 알림 지시가 추가되어야 함
+		if !strings.Contains(result, "task-complete") {
+			t.Error("작업 완료 알림 지시가 포함되어야 함")
+		}
+	})
+
+	t.Run("이미 TDD 포함", func(t *testing.T) {
+		prompt := "TDD 방식으로 개발 진행해주세요"
+		result := invoker.AddTDDSuffix(prompt)
+
+		// TDD 문구가 중복 추가되면 안됨 (원본 프롬프트에 하나만 있어야)
+		count := strings.Count(result, "TDD 방식으로 개발 진행")
+		if count != 1 {
+			t.Errorf("TDD 문구는 1회만 포함되어야 함: %d회 발견", count)
+		}
+
+		// 작업 완료 알림 지시는 여전히 추가되어야 함
+		if !strings.Contains(result, "task-complete") {
+			t.Error("작업 완료 알림 지시가 포함되어야 함")
+		}
+	})
 }
 
 // MockInvoker는 테스트용 Mock Invoker입니다.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/zime/slickwebhook/internal/aiworker"
 	"github.com/zime/slickwebhook/internal/claudehook"
@@ -19,10 +21,28 @@ import (
 	"github.com/zime/slickwebhook/internal/issueformatter"
 	"github.com/zime/slickwebhook/internal/slack"
 	"github.com/zime/slickwebhook/internal/webhook"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func main() {
-	logger := log.New(os.Stdout, "", log.LstdFlags)
+	// 로거 설정 (LOG_TO_FILE 환경변수로 파일 로깅 활성화)
+	var logWriter io.Writer = os.Stdout
+
+	if os.Getenv("LOG_TO_FILE") == "1" {
+		exeDir, _ := filepath.Abs(".")
+		logDir := filepath.Join(exeDir, "logs")
+		os.MkdirAll(logDir, 0755)
+
+		logWriter = &lumberjack.Logger{
+			Filename:   filepath.Join(logDir, "aiworker.log"),
+			MaxSize:    100, // MB
+			MaxBackups: 5,   // 파일 개수
+			MaxAge:     30,  // 일
+			Compress:   true,
+		}
+	}
+
+	logger := log.New(logWriter, "", log.LstdFlags)
 	logger.Println("[AI Worker] 시작...")
 
 	// 설정 파일 로드
@@ -49,8 +69,8 @@ func main() {
 	// issueformatter 생성
 	formatter := issueformatter.NewIssueFormatter(issueformatter.DefaultConfig())
 
-	// Claude Code Invoker 생성
-	invoker := aiworker.NewDefaultInvoker()
+	// Claude Code Invoker 생성 (Hook 서버 포트 전달하여 Plan Ready 알림 지원)
+	invoker := aiworker.NewDefaultInvokerWithPort(workerConfig.HookServerPort)
 
 	// Manager 생성 및 의존성 주입
 	manager := aiworker.NewManager(workerConfig)
@@ -80,13 +100,64 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Hook 서버 시작 (Claude Code Stop Hook 수신 - 로그만 남김)
-	// 참고: Stop Hook은 Rate Limit 등 비정상 종료에도 발생하므로 완료 처리하지 않음
+	// Hook 서버 시작 (Claude Code Stop Hook 수신)
+	// Stop 이벤트에 따라 다른 Slack 알림 전송
 	hookCallback := func(payload *hookserver.StopHookPayload) {
-		logger.Printf("[AI Worker] Claude Code Stop Hook 수신: %s (완료 처리는 SessionEnd에서 수행)", payload.Cwd)
+		logger.Printf("[AI Worker] Claude Code Stop Hook 수신: cwd=%s, permission_mode=%s", payload.Cwd, payload.PermissionMode)
+
+		worker := manager.GetWorkerBySrcPath(payload.Cwd)
+		if worker == nil || !worker.IsProcessing() {
+			logger.Printf("[AI Worker] Stop Hook: 매칭되는 Worker 없거나 처리 중 아님")
+			return
+		}
+
+		workerID := worker.GetConfig().ID
+
+		// Plan 모드면 transcript 분석 없이 바로 알림 전송
+		// (Claude Code 2.1.19+ 버그: plan 모드 Stop Hook에서 transcript_path가 비어있음)
+		if payload.PermissionMode == "plan" {
+			logger.Printf("[AI Worker] Plan 모드 Stop 감지 - Slack 알림 전송")
+			planPayload := &hookserver.PlanReadyPayload{
+				Cwd:       payload.Cwd,
+				PlanTitle: "계획 수립 완료",
+			}
+			sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, planPayload)
+			return
+		}
+
+		// transcript 파일에서 Stop 원인 분석 (plan 모드가 아닌 경우)
+		stopReason := analyzeStopReason(payload.TranscriptPath, logger)
+		logger.Printf("[AI Worker] Stop 원인 분석: %s", stopReason)
+
+		switch stopReason {
+		case StopReasonPlanReady:
+			// Plan 완료 - 검토 요청 알림 (fallback)
+			logger.Printf("[AI Worker] Plan 완료 감지 (transcript) - Slack 알림 전송")
+			planPayload := &hookserver.PlanReadyPayload{
+				Cwd:       payload.Cwd,
+				PlanTitle: "계획 수립 완료",
+			}
+			sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, planPayload)
+
+		case StopReasonRateLimit:
+			// Rate Limit 알림
+			sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, "⚠️ Rate Limit", "API 사용량 한도에 도달했습니다. 잠시 후 재시도됩니다.")
+
+		case StopReasonContextExceeded:
+			// Context 초과 알림
+			sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, "⚠️ Context 초과", "컨텍스트 윈도우 한도를 초과했습니다.")
+
+		case StopReasonAPIError:
+			// API 에러 알림
+			sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, "❌ API 에러", "Claude API 호출 중 에러가 발생했습니다.")
+
+		case StopReasonUnknown:
+			// 알 수 없는 Stop - 로그만 남김
+			logger.Printf("[AI Worker] 알 수 없는 Stop 원인 (알림 생략)")
+		}
 	}
 
-	// SessionEnd 콜백 (취소 시 롤백 / 정상 종료 시 완료 처리)
+	// SessionEnd 콜백 (취소 시 롤백만 수행. 완료 처리는 TaskComplete에서)
 	sessionEndCallback := func(payload *hookserver.SessionEndPayload) {
 		logger.Printf("[AI Worker] 세션 종료: cwd=%s, reason=%s", payload.Cwd, payload.Reason)
 
@@ -109,22 +180,9 @@ func main() {
 			}
 
 		case hookserver.ReasonOther:
-			// 정상 종료 시 완료 처리 (Stop Hook 미발생 fallback)
-			logger.Printf("[AI Worker] 정상 종료 감지, 완료 처리 시작...")
-
-			// 완료 처리 전에 태스크 정보 저장 (ClearProcessing 전에)
-			taskID := worker.GetCurrentTaskID()
-			taskName := worker.GetCurrentTaskName()
-			jiraID := worker.GetCurrentJiraID()
-			workerID := worker.GetConfig().ID
-
-			if err := manager.OnHookReceived(ctx, payload.Cwd); err != nil {
-				logger.Printf("[AI Worker] 완료 처리 실패: %v", err)
-			} else {
-				logger.Printf("[AI Worker] 완료 처리 성공")
-				// Slack 알림 전송 (저장된 태스크 정보 사용)
-				sendSlackNotificationWithInfo(ctx, slackClient, workerConfig.SlackChannel, workerID, taskID, taskName, jiraID)
-			}
+			// 정상 종료 - 완료 처리는 TaskComplete 콜백에서 수행
+			// (Claude가 명시적으로 curl을 호출했을 때만 완료 처리)
+			logger.Printf("[AI Worker] 세션 정상 종료 (완료 처리는 Claude의 TaskComplete 알림 대기)")
 		}
 	}
 
@@ -132,7 +190,57 @@ func main() {
 	hookServer.SetLogger(logger)
 	hookServer.SetSessionEndCallback(sessionEndCallback)
 
-	// Webhook 서버 시작 (ClickUp 이벤트 수신)
+	// Plan Ready 콜백 (Plan 완료 시 Slack 알림)
+	planReadyCallback := func(payload *hookserver.PlanReadyPayload) {
+		logger.Printf("[AI Worker] Plan Ready 수신: cwd=%s, plan=%s", payload.Cwd, payload.PlanTitle)
+
+		// 해당 cwd에 매칭되는 Worker 찾기
+		worker := manager.GetWorkerBySrcPath(payload.Cwd)
+		if worker == nil {
+			logger.Printf("[AI Worker] Plan Ready: 매칭되는 Worker 없음 (cwd=%s)", payload.Cwd)
+			return
+		}
+
+		// Slack 알림 전송
+		sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, payload)
+	}
+	hookServer.SetPlanReadyCallback(planReadyCallback)
+
+	// TaskComplete 콜백 (Claude가 명시적으로 작업 완료 알림)
+	taskCompleteCallback := func(payload *hookserver.TaskCompletePayload) {
+		logger.Printf("[AI Worker] TaskComplete 수신: cwd=%s, status=%s", payload.Cwd, payload.Status)
+
+		worker := manager.GetWorkerBySrcPath(payload.Cwd)
+		if worker == nil || !worker.IsProcessing() {
+			logger.Printf("[AI Worker] TaskComplete: 매칭되는 Worker 없거나 처리 중 아님")
+			return
+		}
+
+		// 완료 처리 전에 태스크 정보 저장
+		taskID := worker.GetCurrentTaskID()
+		taskName := worker.GetCurrentTaskName()
+		jiraID := worker.GetCurrentJiraID()
+		workerID := worker.GetConfig().ID
+
+		if err := manager.OnHookReceived(ctx, payload.Cwd); err != nil {
+			logger.Printf("[AI Worker] 완료 처리 실패: %v", err)
+		} else {
+			logger.Printf("[AI Worker] 완료 처리 성공 (Claude 명시적 완료)")
+			// Slack 알림 전송
+			sendSlackNotificationWithInfo(ctx, slackClient, workerConfig.SlackChannel, workerID, taskID, taskName, jiraID)
+
+			// 0.5초 후 Claude 프로세스 종료
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				logger.Printf("[AI Worker] Claude 프로세스 종료 중 (Worker: %s)", workerID)
+				if err := worker.TerminateClaude(); err != nil {
+					logger.Printf("[AI Worker] Claude 종료 실패: %v", err)
+				}
+			}()
+		}
+	}
+	hookServer.SetTaskCompleteCallback(taskCompleteCallback)
+
 	webhookProcessor := &WebhookProcessor{manager: manager, logger: logger}
 	webhookServer := webhook.NewServer(
 		webhook.ServerConfig{
@@ -323,6 +431,128 @@ func sendSlackNotificationWithInfo(ctx context.Context, client *slack.SlackClien
 	if jiraID != "" {
 		message += "Jira 이슈: https://kakaovx.atlassian.net/browse/" + jiraID + "\n"
 	}
+
+	client.PostMessage(ctx, channelID, nil, message)
+}
+
+// sendPlanReadySlackNotification는 Plan 완료 시 Slack에 검토 요청 알림을 전송합니다.
+func sendPlanReadySlackNotification(ctx context.Context, client *slack.SlackClient, channelID string, worker *aiworker.Worker, payload *hookserver.PlanReadyPayload) {
+	if channelID == "" {
+		return
+	}
+
+	config := worker.GetConfig()
+	taskID := worker.GetCurrentTaskID()
+	taskName := worker.GetCurrentTaskName()
+	jiraID := worker.GetCurrentJiraID()
+
+	message := "📋 *계획 수립 완료 - 검토 필요*\n"
+	message += "Worker: " + config.ID + "\n"
+
+	if taskName != "" {
+		message += "제목: " + taskName + "\n"
+	}
+
+	if payload.PlanTitle != "" {
+		message += "Plan: " + payload.PlanTitle + "\n"
+	}
+
+	if taskID != "" {
+		message += "ClickUP: https://app.clickup.com/t/" + taskID + "\n"
+	}
+
+	// Jira 이슈 링크
+	if jiraID != "" {
+		message += "Jira 이슈: https://kakaovx.atlassian.net/browse/" + jiraID + "\n"
+	}
+
+	message += "\n⏳ 터미널에서 계획을 검토하고 승인해주세요."
+
+	client.PostMessage(ctx, channelID, nil, message)
+}
+
+// Stop 원인 상수
+type StopReason string
+
+const (
+	StopReasonPlanReady       StopReason = "plan_ready"
+	StopReasonRateLimit       StopReason = "rate_limit"
+	StopReasonContextExceeded StopReason = "context_exceeded"
+	StopReasonAPIError        StopReason = "api_error"
+	StopReasonUnknown         StopReason = "unknown"
+)
+
+// analyzeStopReason은 transcript 파일을 분석하여 Stop 원인을 반환합니다.
+func analyzeStopReason(transcriptPath string, logger *log.Logger) StopReason {
+	if transcriptPath == "" {
+		return StopReasonUnknown
+	}
+
+	// transcript 파일 읽기 (마지막 4KB만 읽어서 성능 최적화)
+	file, err := os.Open(transcriptPath)
+	if err != nil {
+		logger.Printf("[AI Worker] Transcript 파일 열기 실패: %v", err)
+		return StopReasonUnknown
+	}
+	defer file.Close()
+
+	// 파일 끝에서 4KB 읽기
+	stat, _ := file.Stat()
+	size := stat.Size()
+	readSize := int64(4096)
+	if size < readSize {
+		readSize = size
+	}
+	file.Seek(-readSize, 2)
+
+	buf := make([]byte, readSize)
+	n, _ := file.Read(buf)
+	content := strings.ToLower(string(buf[:n]))
+
+	// Plan 완료 확인 (가장 먼저 체크)
+	planReadyKeywords := []string{"would you like to proceed", "계획을 검토", "proceed?"}
+	for _, keyword := range planReadyKeywords {
+		if strings.Contains(content, keyword) {
+			return StopReasonPlanReady
+		}
+	}
+
+	// Rate Limit 확인
+	rateLimitKeywords := []string{"hit your limit", "rate limit", "quota exceeded", "limit - resets"}
+	for _, keyword := range rateLimitKeywords {
+		if strings.Contains(content, keyword) {
+			return StopReasonRateLimit
+		}
+	}
+
+	// Context 초과 확인
+	contextKeywords := []string{"context window", "context exceeded", "too long", "max tokens"}
+	for _, keyword := range contextKeywords {
+		if strings.Contains(content, keyword) {
+			return StopReasonContextExceeded
+		}
+	}
+
+	// API 에러 확인
+	errorKeywords := []string{"error", "failed", "exception", "api error"}
+	for _, keyword := range errorKeywords {
+		if strings.Contains(content, keyword) {
+			return StopReasonAPIError
+		}
+	}
+
+	return StopReasonUnknown
+}
+
+// sendStopEventNotification은 Stop 이벤트에 대한 Slack 알림을 전송합니다.
+func sendStopEventNotification(ctx context.Context, client *slack.SlackClient, channelID, workerID, eventType, description string) {
+	if channelID == "" {
+		return
+	}
+
+	message := eventType + "\n"
+	message += "Worker: " + workerID + "\n"
+	message += description
 
 	client.PostMessage(ctx, channelID, nil, message)
 }
