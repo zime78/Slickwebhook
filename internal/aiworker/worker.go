@@ -3,7 +3,6 @@ package aiworker
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"sync"
 
@@ -27,7 +26,8 @@ type Worker struct {
 	formatter       issueformatter.Formatter
 	statusWorking   string
 	statusCompleted string
-	completedListID string // 완료된 태스크 이동 목표 리스트 ID
+	completedListID string       // 완료된 태스크 이동 목표 리스트 ID
+	terminalType    TerminalType // 사용할 터미널 종류
 
 	// 상태 관리
 	mu              sync.Mutex
@@ -53,7 +53,13 @@ func NewWorker(
 		statusWorking:   statusWorking,
 		statusCompleted: statusCompleted,
 		completedListID: completedListID,
+		terminalType:    TerminalTypeDefault,
 	}
+}
+
+// SetTerminalType은 터미널 타입을 설정합니다.
+func (w *Worker) SetTerminalType(terminalType TerminalType) {
+	w.terminalType = terminalType
 }
 
 // SetFormatter는 이슈 포맷터를 설정합니다.
@@ -90,8 +96,8 @@ func (w *Worker) ProcessTask(ctx context.Context, taskID string) error {
 	// 프롬프트 생성
 	prompt := w.buildPrompt(ctx, task)
 
-	// Claude Code 실행
-	_, err = w.invoker.InvokePlan(ctx, w.config.SrcPath, prompt)
+	// Claude Code 실행 (Worker ID 전달)
+	_, err = w.invoker.InvokePlan(ctx, w.config.SrcPath, prompt, w.config.ID)
 	if err != nil {
 		return fmt.Errorf("Claude Code 실행 실패: %w", err)
 	}
@@ -292,44 +298,18 @@ func (w *Worker) GetSrcPath() string {
 }
 
 // TerminateClaude는 현재 실행 중인 Claude 터미널 창을 종료합니다.
-// AppleScript를 사용하여 해당 작업 디렉토리의 터미널에 Ctrl+C를 전송하고 창을 닫습니다.
+// Worker ID로 터미널 창을 식별하여 종료합니다.
 func (w *Worker) TerminateClaude() error {
 	w.mu.Lock()
-	srcPath := w.srcPath
-	if srcPath == "" {
-		srcPath = w.config.SrcPath
-	}
+	terminalType := w.terminalType
+	workerID := w.config.ID
 	w.mu.Unlock()
 
-	if srcPath == "" {
-		return fmt.Errorf("작업 디렉토리가 설정되지 않음")
+	if workerID == "" {
+		return fmt.Errorf("Worker ID가 설정되지 않음")
 	}
 
-	// AppleScript: 해당 경로가 포함된 터미널 창을 찾아서 닫기
-	script := fmt.Sprintf(`
-tell application "Terminal"
-	set windowList to every window
-	repeat with w in windowList
-		set tabList to every tab of w
-		repeat with t in tabList
-			try
-				if contents of t contains "%s" then
-					-- 종료 명령 전송 (exit)
-					do script "exit" in t
-					delay 0.2
-					close w
-					return
-				end if
-			end try
-		end repeat
-	end repeat
-end tell
-`, srcPath)
-
-	cmd := exec.Command("osascript", "-e", script)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("터미널 종료 실패: %w", err)
-	}
-
-	return nil
+	// TerminalHandler를 통해 Worker ID로 창 찾아 종료
+	handler := GetTerminalHandler(terminalType)
+	return handler.Terminate(workerID)
 }

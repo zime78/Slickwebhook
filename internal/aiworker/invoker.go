@@ -11,7 +11,7 @@ import (
 
 // ClaudeInvoker는 Claude Code를 실행하는 인터페이스입니다.
 type ClaudeInvoker interface {
-	InvokePlan(ctx context.Context, workDir, prompt string) (*InvokeResult, error)
+	InvokePlan(ctx context.Context, workDir, prompt, workerID string) (*InvokeResult, error)
 }
 
 // InvokeResult는 Claude Code 실행 결과입니다.
@@ -24,12 +24,14 @@ type InvokeResult struct {
 // DefaultInvoker는 실제 Claude Code를 실행합니다.
 type DefaultInvoker struct {
 	hookServerPort int
+	terminalType   TerminalType
 }
 
 // NewDefaultInvoker는 새 DefaultInvoker를 생성합니다.
 func NewDefaultInvoker() *DefaultInvoker {
 	return &DefaultInvoker{
-		hookServerPort: 8081, // 기본 포트
+		hookServerPort: 8081,                // 기본 포트
+		terminalType:   TerminalTypeDefault, // 기본 터미널
 	}
 }
 
@@ -37,12 +39,26 @@ func NewDefaultInvoker() *DefaultInvoker {
 func NewDefaultInvokerWithPort(port int) *DefaultInvoker {
 	return &DefaultInvoker{
 		hookServerPort: port,
+		terminalType:   TerminalTypeDefault,
 	}
+}
+
+// NewDefaultInvokerWithConfig는 전체 설정으로 DefaultInvoker를 생성합니다.
+func NewDefaultInvokerWithConfig(port int, terminalType TerminalType) *DefaultInvoker {
+	return &DefaultInvoker{
+		hookServerPort: port,
+		terminalType:   terminalType,
+	}
+}
+
+// GetTerminalType은 현재 터미널 타입을 반환합니다.
+func (i *DefaultInvoker) GetTerminalType() TerminalType {
+	return i.terminalType
 }
 
 // InvokePlan은 Claude Code를 플랜 모드로 실행합니다.
 // macOS에서 새 터미널 창을 열어 실행합니다.
-func (i *DefaultInvoker) InvokePlan(ctx context.Context, workDir, prompt string) (*InvokeResult, error) {
+func (i *DefaultInvoker) InvokePlan(ctx context.Context, workDir, prompt, workerID string) (*InvokeResult, error) {
 	// TDD 문구 추가
 	fullPrompt := i.AddTDDSuffix(prompt)
 
@@ -61,7 +77,7 @@ func (i *DefaultInvoker) InvokePlan(ctx context.Context, workDir, prompt string)
 	tmpFile.Close()
 
 	// AppleScript로 새 터미널에서 실행 (파일에서 프롬프트 읽기)
-	script := i.BuildAppleScriptWithFile(workDir, tmpPath)
+	script := i.BuildAppleScriptWithFile(workDir, tmpPath, workerID)
 
 	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
 	if err := cmd.Run(); err != nil {
@@ -150,18 +166,12 @@ curl -s -X POST http://localhost:%d/hook/task-complete -H 'Content-Type: applica
 
 // BuildAppleScriptWithFile는 파일에서 프롬프트를 읽어 Claude Code를 실행하는 AppleScript를 생성합니다.
 // 프롬프트를 임시 파일에 저장하고 cat으로 읽어서 claude에 전달합니다.
-func (i *DefaultInvoker) BuildAppleScriptWithFile(workDir, promptFilePath string) string {
+func (i *DefaultInvoker) BuildAppleScriptWithFile(workDir, promptFilePath, workerID string) string {
 	// 경로에 작은따옴표가 있으면 이스케이프
 	escapedWorkDir := strings.ReplaceAll(workDir, "'", "'\\''")
 	escapedFilePath := strings.ReplaceAll(promptFilePath, "'", "'\\''")
 
-	// cat으로 파일 읽어서 claude에 파이프, 완료 후 파일 삭제
-	script := fmt.Sprintf(`
-tell application "Terminal"
-	activate
-	do script "cd '%s' && cat '%s' | claude --permission-mode plan && rm -f '%s'"
-end tell
-`, escapedWorkDir, escapedFilePath, escapedFilePath)
-
-	return script
+	// TerminalHandler를 통해 AppleScript 생성
+	handler := GetTerminalHandler(i.terminalType)
+	return handler.BuildInvokeScript(escapedWorkDir, escapedFilePath, workerID)
 }

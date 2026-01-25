@@ -45,9 +45,15 @@ func main() {
 	logger := log.New(logWriter, "", log.LstdFlags)
 	logger.Println("[AI Worker] 시작...")
 
-	// 설정 파일 로드
+	// 설정 파일 로드 (AI Worker 전용 파일 우선, 없으면 email 설정 폴백)
 	exeDir, _ := config.GetExecutableDir()
-	configPath := filepath.Join(exeDir, "config.email.ini")
+	configPath := filepath.Join(exeDir, "config.aiworker.ini")
+
+	// AI Worker 전용 설정 파일이 없으면 email 설정 파일 사용
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		configPath = filepath.Join(exeDir, "config.email.ini")
+	}
+
 	logger.Printf("[AI Worker] 설정 파일 로드: %s", configPath)
 
 	if err := config.LoadEnvFile(configPath); err != nil {
@@ -69,8 +75,8 @@ func main() {
 	// issueformatter 생성
 	formatter := issueformatter.NewIssueFormatter(issueformatter.DefaultConfig())
 
-	// Claude Code Invoker 생성 (Hook 서버 포트 전달하여 Plan Ready 알림 지원)
-	invoker := aiworker.NewDefaultInvokerWithPort(workerConfig.HookServerPort)
+	// Claude Code Invoker 생성 (Hook 서버 포트 및 터미널 타입 설정)
+	invoker := aiworker.NewDefaultInvokerWithConfig(workerConfig.HookServerPort, workerConfig.TerminalType)
 
 	// Manager 생성 및 의존성 주입
 	manager := aiworker.NewManager(workerConfig)
@@ -78,9 +84,10 @@ func main() {
 	manager.SetClickUpClient(clickupClient)
 	manager.SetInvoker(invoker)
 
-	// 각 Worker에 formatter 설정
+	// 각 Worker에 formatter 및 터미널 타입 설정
 	for _, worker := range manager.GetWorkers() {
 		worker.SetFormatter(formatter)
+		worker.SetTerminalType(workerConfig.TerminalType)
 	}
 
 	// Claude Code Hook 설정
@@ -345,6 +352,16 @@ func loadWorkerConfig(logger *log.Logger) aiworker.Config {
 
 	// Slack 채널
 	config.SlackChannel = os.Getenv("SLACK_NOTIFY_CHANNEL")
+
+	// 터미널 타입 설정 (terminal/warp, 기본: terminal)
+	terminalType := os.Getenv("TERMINAL_TYPE")
+	if terminalType == "warp" {
+		config.TerminalType = aiworker.TerminalTypeWarp
+		logger.Printf("[AI Worker] 터미널 타입 설정: Warp")
+	} else {
+		config.TerminalType = aiworker.TerminalTypeDefault
+		logger.Printf("[AI Worker] 터미널 타입 설정: Terminal")
+	}
 
 	return config
 }

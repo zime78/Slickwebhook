@@ -1,14 +1,23 @@
 package aiworker
 
+// TerminalType은 사용할 터미널 종류입니다.
+type TerminalType string
+
+const (
+	TerminalTypeDefault TerminalType = "terminal" // macOS 기본 터미널
+	TerminalTypeWarp    TerminalType = "warp"     // Warp 터미널
+)
+
 // Config는 AI Worker 전체 설정입니다.
 type Config struct {
-	Workers           []WorkerConfig // 각 Worker별 설정
-	StatusWorking     string         // 작업중 상태명 (기본: "작업중")
-	StatusCompleted   string         // 완료 상태명 (기본: "개발완료")
-	CompletedListID   string         // 완료된 태스크 이동 목표 리스트 ID
-	HookServerPort    int            // Hook 서버 포트 (기본: 8081)
-	WebhookPort       int            // Webhook 서버 포트 (기본: 8080)
-	SlackChannel      string         // Slack 알림 채널 ID
+	Workers         []WorkerConfig // 각 Worker별 설정
+	StatusWorking   string         // 작업중 상태명 (기본: "작업중")
+	StatusCompleted string         // 완료 상태명 (기본: "개발완료")
+	CompletedListID string         // 완료된 태스크 이동 목표 리스트 ID
+	HookServerPort  int            // Hook 서버 포트 (기본: 8081)
+	WebhookPort     int            // Webhook 서버 포트 (기본: 8080)
+	SlackChannel    string         // Slack 알림 채널 ID
+	TerminalType    TerminalType   // 터미널 종류 (기본: "terminal")
 }
 
 // WorkerConfig는 개별 Worker 설정입니다.
@@ -26,6 +35,7 @@ func DefaultConfig() Config {
 		StatusCompleted: "개발완료",
 		HookServerPort:  8081,
 		WebhookPort:     8080,
+		TerminalType:    TerminalTypeDefault,
 	}
 }
 

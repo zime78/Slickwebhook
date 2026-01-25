@@ -8,10 +8,15 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-# 설정 파일 확인
-CONFIG_FILE="$PROJECT_DIR/config.email.ini"
+# 설정 파일 확인 (AI Worker 전용 파일 필수)
+CONFIG_FILE="$PROJECT_DIR/config.aiworker.ini"
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "❌ 설정 파일이 없습니다: $CONFIG_FILE"
+    echo "❌ AI Worker 설정 파일이 없습니다: $CONFIG_FILE"
+    echo ""
+    echo "   설정 파일을 생성해주세요:"
+    echo "   cp _config.aiworker.ini config.aiworker.ini"
+    echo ""
+    echo "   또는 템플릿을 참고하세요: _config.aiworker.ini"
     exit 1
 fi
 
