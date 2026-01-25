@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/zime/slickwebhook/internal/aiworker"
 	"github.com/zime/slickwebhook/internal/claudehook"
@@ -227,6 +228,15 @@ func main() {
 			logger.Printf("[AI Worker] 완료 처리 성공 (Claude 명시적 완료)")
 			// Slack 알림 전송
 			sendSlackNotificationWithInfo(ctx, slackClient, workerConfig.SlackChannel, workerID, taskID, taskName, jiraID)
+
+			// 0.5초 후 Claude 프로세스 종료
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				logger.Printf("[AI Worker] Claude 프로세스 종료 중 (Worker: %s)", workerID)
+				if err := worker.TerminateClaude(); err != nil {
+					logger.Printf("[AI Worker] Claude 종료 실패: %v", err)
+				}
+			}()
 		}
 	}
 	hookServer.SetTaskCompleteCallback(taskCompleteCallback)

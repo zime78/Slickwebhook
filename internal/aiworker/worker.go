@@ -3,6 +3,7 @@ package aiworker
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"sync"
 
@@ -35,6 +36,7 @@ type Worker struct {
 	currentTaskName string // Slack 알림용 태스크 이름
 	currentJiraID   string // Slack 알림용 Jira 이슈 ID
 	originalStatus  string // 취소 시 롤백을 위한 원래 상태
+	srcPath         string // 현재 작업 디렉토리 (터미널 종료용)
 }
 
 // NewWorker는 새 Worker를 생성합니다.
@@ -273,4 +275,61 @@ func extractJiraID(description string) string {
 		return match
 	}
 	return ""
+}
+
+// SetSrcPath는 현재 작업 디렉토리를 설정합니다. (터미널 종료용)
+func (w *Worker) SetSrcPath(srcPath string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.srcPath = srcPath
+}
+
+// GetSrcPath는 현재 작업 디렉토리를 반환합니다.
+func (w *Worker) GetSrcPath() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.srcPath
+}
+
+// TerminateClaude는 현재 실행 중인 Claude 터미널 창을 종료합니다.
+// AppleScript를 사용하여 해당 작업 디렉토리의 터미널에 Ctrl+C를 전송하고 창을 닫습니다.
+func (w *Worker) TerminateClaude() error {
+	w.mu.Lock()
+	srcPath := w.srcPath
+	if srcPath == "" {
+		srcPath = w.config.SrcPath
+	}
+	w.mu.Unlock()
+
+	if srcPath == "" {
+		return fmt.Errorf("작업 디렉토리가 설정되지 않음")
+	}
+
+	// AppleScript: 해당 경로가 포함된 터미널 창을 찾아서 닫기
+	script := fmt.Sprintf(`
+tell application "Terminal"
+	set windowList to every window
+	repeat with w in windowList
+		set tabList to every tab of w
+		repeat with t in tabList
+			try
+				if contents of t contains "%s" then
+					-- 종료 명령 전송 (exit)
+					do script "exit" in t
+					delay 0.2
+					close w
+					return
+				end if
+			end try
+		end repeat
+	end repeat
+end tell
+`, srcPath)
+
+	cmd := exec.Command("osascript", "-e", script)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("터미널 종료 실패: %w", err)
+	}
+
+	return nil
 }
