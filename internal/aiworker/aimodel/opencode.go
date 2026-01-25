@@ -1,0 +1,119 @@
+package aimodel
+
+import (
+	"fmt"
+	"os/exec"
+)
+
+// OpenCodeHandler는 OpenCode 핸들러입니다.
+type OpenCodeHandler struct {
+	hookServerPort int
+	terminalType   string
+}
+
+// NewOpenCodeHandler는 새 OpenCode 핸들러를 생성합니다.
+func NewOpenCodeHandler(hookServerPort int, terminalType string) *OpenCodeHandler {
+	return &OpenCodeHandler{
+		hookServerPort: hookServerPort,
+		terminalType:   terminalType,
+	}
+}
+
+func (h *OpenCodeHandler) GetType() AIModelType {
+	return AIModelOpenCode
+}
+
+func (h *OpenCodeHandler) GetPlanModeOption() string {
+	// OpenCode는 `opencode run` 명령어로 프롬프트 실행
+	return "run"
+}
+
+func (h *OpenCodeHandler) BuildInvokeScript(workDir, promptFilePath, workerID string) string {
+	if h.terminalType == string(TerminalTypeWarp) {
+		return h.buildWarpScript(workDir, promptFilePath, workerID)
+	}
+	return h.buildTerminalScript(workDir, promptFilePath, workerID)
+}
+
+func (h *OpenCodeHandler) buildTerminalScript(workDir, promptFilePath, workerID string) string {
+	// Terminal.app에서 OpenCode TUI 실행
+	// --prompt 옵션으로 초기 프롬프트를 전달하면 TUI 모드에서 대화형으로 작업 가능
+	return fmt.Sprintf(`
+tell application "Terminal"
+	activate
+	do script "cd '%s' && opencode --prompt \"$(cat '%s')\" && rm -f '%s'"
+	set customTitle to "%s"
+	set custom title of selected tab of front window to customTitle
+end tell
+`, workDir, promptFilePath, promptFilePath, workerID)
+}
+
+func (h *OpenCodeHandler) buildWarpScript(workDir, promptFilePath, workerID string) string {
+	// Warp 터미널에서 OpenCode 실행
+	// 새 탭에서 명령어 실행 - delay를 늘려 안정성 확보
+	return fmt.Sprintf(`
+do shell script "open -a Warp '%s'"
+delay 2
+tell application "System Events"
+	tell process "Warp"
+		keystroke "t" using {command down}
+		delay 1
+		keystroke "cd '%s' && opencode --prompt \"$(cat '%s')\" && rm -f '%s'"
+		delay 0.5
+		keystroke return
+	end tell
+end tell
+`, workDir, workDir, promptFilePath, promptFilePath)
+}
+
+func (h *OpenCodeHandler) BuildTerminateScript(workerID string) string {
+	if h.terminalType == string(TerminalTypeWarp) {
+		return ""
+	}
+	return fmt.Sprintf(`
+tell application "Terminal"
+	set windowList to every window
+	repeat with w in windowList
+		try
+			set t to selected tab of w
+			if custom title of t is "%s" then
+				do script "exit" in t
+				delay 0.2
+				close w
+				return
+			end if
+		end try
+	end repeat
+end tell
+`, workerID)
+}
+
+func (h *OpenCodeHandler) Terminate(workerID string) error {
+	script := h.BuildTerminateScript(workerID)
+	if script == "" {
+		return nil
+	}
+	cmd := exec.Command("osascript", "-e", script)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("OpenCode 터미널 종료 실패: %w", err)
+	}
+	return nil
+}
+
+func (h *OpenCodeHandler) GetTaskCompleteInstruction() string {
+	return fmt.Sprintf(`
+
+ultrawork
+
+---
+## 중요: 작업 완료 알림
+
+모든 작업이 완료되면 반드시 아래 명령을 실행하여 Slack으로 완료 알림을 보내세요:
+
+`+"`"+`bash
+curl -s -X POST http://localhost:%d/hook/task-complete -H 'Content-Type: application/json' -d '{"cwd": "'$(pwd)'", "status": "completed"}'
+`+"`"+`
+
+작업이 완료되지 않았거나 에러가 발생한 경우에는 이 명령을 실행하지 마세요.
+---`, h.hookServerPort)
+}

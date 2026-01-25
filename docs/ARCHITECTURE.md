@@ -2,20 +2,27 @@
 
 ## 개요
 
-SlickWebhook은 **멀티 소스 모니터링 서비스**로, Slack 채널과 Gmail을 실시간으로 모니터링하여 새 메시지/이메일 감지 시 ClickUp 태스크를 자동 생성하고, Slack 채널로 알림을 전송하는 Go 기반 서비스입니다.
+SlickWebhook은 **멀티 소스 모니터링 서비스**로, Slack 채널과 Gmail을 실시간으로 모니터링하여 새 메시지/이메일 감지 시 ClickUp 태스크를 자동 생성하고, **AI 에이전트로 자동 처리**하는 Go 기반 서비스입니다.
 
-### 지원 소스
+### 지원 소스/서비스
 
-| 소스 | 설명 | 엔트리포인트 |
-|------|------|--------------|
-| Slack | 채널 메시지 모니터링 (봇 필터링 지원) | `cmd/slack-monitor/` |
-| Gmail | IMAP 기반 이메일 모니터링 (발신자/라벨 필터링) | `cmd/email-monitor/` |
+| 서비스 | 설명 | 엔트리포인트 |
+|--------|------|--------------|
+| Slack Monitor | 채널 메시지 모니터링 (봇 필터링 지원) | `cmd/slack-monitor/` |
+| Email Monitor | IMAP 기반 이메일 모니터링 (발신자/라벨 필터링) | `cmd/email-monitor/` |
+| AI Worker | ClickUp 태스크 → AI 에이전트 자동 실행 | `cmd/ai-worker/` |
 
 ## 시스템 아키텍처
 
 ### 전체 구조
 
-![alt text](email_workflow_diagram_1769028365434.png)
+#### Email/Slack Monitor
+
+![Email Workflow](email_workflow_diagram_1769028365434.png)
+
+#### AI Worker
+
+![AI Worker Architecture](ai_worker_architecture.png)
 
 ```mermaid
 flowchart TB

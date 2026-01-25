@@ -36,7 +36,7 @@ make clean              # 빌드 파일 정리
 | ------ | ---- | --------- |
 | Slack Monitor | Slack 채널 모니터링 → ClickUp 태스크 생성 | config.ini |
 | Email Monitor | 이메일 모니터링 → ClickUp 태스크 생성 | config.email.ini |
-| AI Worker | ClickUp AI 리스트 모니터링 → Claude Code 자동 실행 | config.email.ini |
+| AI Worker | ClickUp AI 리스트 모니터링 → **AI 에이전트 자동 실행** | config.aiworker.ini |
 
 ## 아키텍처
 
@@ -64,46 +64,53 @@ internal/
 
 ### AI Worker
 
-ClickUp AI 리스트 모니터링 → Claude Code 자동 호출 (4개 병렬) → 완료 후 상태 업데이트 및 Slack 알림
+ClickUp AI 리스트 모니터링 → AI 에이전트 자동 호출 (4개 병렬) → 완료 후 상태 업데이트 및 Slack 알림
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                      AI Worker Service                       │
-├─────────────────────────────────────────────────────────────┤
-│  ClickUp Webhook ──→ Webhook Server ──→ 리스트별 라우팅     │
-│                              │                               │
-│           ┌──────────────────┼──────────────────┐           │
-│           ▼                  ▼                  ▼           │
-│      Worker 1           Worker 2           Worker 3/4       │
-│      (AI_01)            (AI_02)            (AI_03/04)       │
-│           │                  │                  │           │
-│           ▼                  ▼                  ▼           │
-│      Claude Code        Claude Code        Claude Code      │
-│      (터미널 1)         (터미널 2)         (터미널 3/4)     │
-│           │                  │                  │           │
-│           └──────────────────┼──────────────────┘           │
-│                              ▼                               │
-│                    Hook Server (완료 수신)                   │
-│                              │                               │
-│              ┌───────────────┴───────────────┐              │
-│              ▼                               ▼              │
-│      ClickUp 상태 변경              Slack 알림 전송         │
-│      ("개발완료")                   (제목, 링크)            │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      AI Worker Service                          │
+├─────────────────────────────────────────────────────────────────┤
+│  ClickUp Webhook ──→ Webhook Server ──→ 리스트별 라우팅         │
+│                              │                                   │
+│           ┌──────────────────┼──────────────────┐               │
+│           ▼                  ▼                  ▼               │
+│      Worker 1           Worker 2           Worker 3/4           │
+│      (AI_01)            (AI_02)            (AI_03/04)           │
+│           │                  │                  │               │
+│           ▼                  ▼                  ▼               │
+│   ┌───────────────┐  ┌───────────────┐  ┌───────────────┐      │
+│   │ Claude Code   │  │   OpenCode    │  │   Ampcode     │      │
+│   │ (터미널 1)    │  │  (터미널 2)   │  │  (터미널 3/4) │      │
+│   └───────┬───────┘  └───────┬───────┘  └───────┬───────┘      │
+│           │                  │                  │               │
+│           └──────────────────┼──────────────────┘               │
+│                              ▼                                   │
+│                    Hook Server (완료 수신)                       │
+│                              │                                   │
+│              ┌───────────────┴───────────────┐                  │
+│              ▼                               ▼                  │
+│      ClickUp 상태 변경              Slack 알림 전송             │
+│      ("개발완료" + 리스트 이동)     (제목, 링크)                │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ```text
 internal/
 ├── aiworker/           # AI Worker 핵심 모듈
+│   ├── aimodel/        # AI 모델 핸들러 (NEW)
+│   │   ├── interface.go   # AIModelHandler 인터페이스
+│   │   ├── claude.go      # Claude Code 핸들러
+│   │   ├── opencode.go    # OpenCode 핸들러
+│   │   └── ampcode.go     # Ampcode 핸들러
 │   ├── config.go       # 리스트별 Worker 설정
 │   ├── queue.go        # 태스크 큐 (FIFO, 동시성 안전)
-│   ├── invoker.go      # Claude Code 호출 (AppleScript)
+│   ├── invoker.go      # AI 에이전트 호출 (AppleScript)
 │   ├── worker.go       # 개별 Worker (리스트 1개 담당)
 │   └── manager.go      # Worker 관리자 (4개 병렬)
 ├── webhook/            # ClickUp Webhook 서버
 │   ├── server.go       # HTTP 서버 (포트: 8080)
 │   └── handler.go      # 서명 검증, AI 리스트 필터링
-├── hookserver/         # Claude Code Hook 수신
+├── hookserver/         # AI 에이전트 Hook 수신
 │   ├── server.go       # HTTP 서버 (포트: 8081)
 │   └── types.go        # 페이로드 타입
 └── claudehook/         # Claude Code 설정 관리
@@ -113,14 +120,22 @@ internal/
 **핵심 흐름**:
 
 1. ClickUp Webhook → AI 리스트 필터링 → Worker 큐에 추가
-2. Worker: 태스크 조회 → issueformatter → 상태 "작업중" → Claude Code 실행
-3. Claude Code 완료 → Hook Server → 상태 "개발완료" → Slack 알림
+2. Worker: 태스크 조회 → issueformatter → 상태 "작업중" → AI 에이전트 실행
+3. AI 에이전트 완료 → Hook Server → 상태 "개발완료" → Slack 알림
 
 **인터페이스 패턴**: `slack.Client`, `clickup.Client`, `handler.EventHandler`, `history.Store`, `aiworker.ClaudeInvoker` 인터페이스로 테스트 용이성 확보
 
 ## AI Worker 사용 가이드
 
-### 1. 설정 (config.email.ini)
+### 1. 지원 AI 에이전트
+
+| AI 에이전트 | 설정값 | Hook 시스템 | 자동화 수준 |
+|-------------|--------|-------------|-------------|
+| **Claude Code** | `claude` | ✅ 내장 HTTP Hook | ⭐⭐⭐ 완전 자동화 |
+| **OpenCode** | `opencode` | ✅ 플러그인 이벤트 | ⭐⭐⭐ 완전 자동화 |
+| **Ampcode** | `ampcode` | ⚠️ 프롬프트 기반 | ⭐⭐ 부분 자동화 |
+
+### 2. 설정 (config.aiworker.ini)
 
 ```ini
 # AI 리스트 설정 (4개 병렬 Worker)
@@ -138,7 +153,7 @@ AI_04_SRC_PATH=/path/to/project4
 
 # 서버 포트
 WEBHOOK_PORT=8080              # ClickUp Webhook 수신
-HOOK_SERVER_PORT=8081          # Claude Code 완료 Hook 수신
+HOOK_SERVER_PORT=8081          # AI 에이전트 완료 Hook 수신
 
 # 상태명 (ClickUp 커스텀 상태)
 AI_STATUS_WORKING=작업중
@@ -146,9 +161,73 @@ AI_STATUS_COMPLETED=개발완료
 
 # 완료된 태스크 이동 목표 리스트
 AI_COMPLETED_LIST_ID=901413896178
+
+# 터미널 타입 (terminal 또는 warp, 기본: terminal)
+TERMINAL_TYPE=warp
+
+# AI 모델 타입 (claude, opencode, ampcode, 기본: claude)
+AI_MODEL_TYPE=opencode
 ```
 
-### 2. 실행 방법
+### 3. AI 모델별 추가 설정
+
+#### Claude Code
+
+별도 설정 불필요. AI Worker 시작 시 자동으로 `~/.claude/settings.json`에 Hook 설정 추가.
+
+```json
+{
+  "hooks": {
+    "Stop": [{"matcher": {}, "hooks": [{"type": "command", "command": "curl ..."}]}]
+  }
+}
+```
+
+#### OpenCode (oh-my-opencode)
+
+`~/.config/opencode/oh-my-opencode.json` 설정 필요:
+
+```json
+{
+  "agents": {
+    "sisyphus": { "model": "google/antigravity-claude-sonnet-4-5-thinking" },
+    "plan": { "model": "google/antigravity-claude-sonnet-4-5-thinking" },
+    "explore": { "model": "google/antigravity-gemini-3-flash" }
+  },
+  "categories": {
+    "quick": { "model": "google/antigravity-gemini-3-flash" },
+    "visual-engineering": { "model": "google/antigravity-claude-sonnet-4-5-thinking" }
+  }
+}
+```
+
+OpenCode Hook 플러그인 (`~/.config/opencode/plugins/ai-worker-hook.ts`):
+
+```typescript
+export const AIWorkerHookPlugin = async ({ project, client, $, directory, worktree }) => {
+  return {
+    event: async ({ event }) => {
+      if (event.type === "session.idle") {
+        await $`curl -s -X POST http://localhost:8081/hook/stop -H 'Content-Type: application/json' -d '...'`
+      }
+    },
+  }
+}
+```
+
+`~/.config/opencode/opencode.json`에 플러그인 등록:
+
+```json
+{
+  "plugin": ["./plugins/ai-worker-hook.ts"]
+}
+```
+
+#### Ampcode
+
+별도 Hook 시스템 없음. 프롬프트에 `curl` 명령어가 자동 추가되어 작업 완료 시 직접 호출.
+
+### 4. 실행 방법
 
 ```bash
 # AI Worker 포그라운드 실행 (개발 모드)
@@ -189,7 +268,7 @@ curl -X POST "https://api.clickup.com/api/v2/team/{TEAM_ID}/webhook" \
   }'
 ```
 
-### 3. 동작 흐름
+### 5. 동작 흐름
 
 ```text
 1. ClickUp AI 리스트에 태스크 등록
@@ -200,10 +279,15 @@ curl -X POST "https://api.clickup.com/api/v2/team/{TEAM_ID}/webhook" \
       ↓
 4. issueformatter로 프롬프트 생성
       ↓
-5. Claude Code 실행 (새 터미널, plan 모드)
-   - 프롬프트 끝에 "TDD 방식으로 개발 진행." 자동 추가
+5. AI 에이전트 실행 (선택된 모델에 따라)
+   - Claude Code: plan 모드로 실행
+   - OpenCode: TUI 모드로 실행 (ultrawork 키워드 포함)
+   - Ampcode: 파이프로 프롬프트 전달
       ↓
-6. Claude Code 완료 시 Stop Hook 발생
+6. AI 에이전트 완료 시 Hook 발생
+   - Claude Code: 내장 Stop Hook
+   - OpenCode: 플러그인 session.idle 이벤트
+   - Ampcode: 프롬프트에 포함된 curl 실행
       ↓
 7. Hook Server가 완료 감지
       ↓
@@ -216,26 +300,7 @@ curl -X POST "https://api.clickup.com/api/v2/team/{TEAM_ID}/webhook" \
 11. 터미널 종료 → 다음 태스크 처리
 ```
 
-### 4. Claude Code Hook 설정
-
-AI Worker 시작 시 자동으로 `~/.claude/settings.json`에 Hook 설정 추가:
-
-```json
-{
-  "hooks": {
-    "Stop": [{
-      "matcher": {},
-      "hooks": [{
-        "type": "command",
-        "command": "curl -s -X POST http://localhost:8081/hook/stop ...",
-        "timeout": 5000
-      }]
-    }]
-  }
-}
-```
-
-### 5. 테스트
+### 6. 테스트
 
 ```bash
 # Webhook 테스트
@@ -248,14 +313,17 @@ AI Worker 시작 시 자동으로 `~/.claude/settings.json`에 Hook 설정 추�
 ./scripts/logs.sh aiworker
 ```
 
-### 6. 주의사항
+### 7. 주의사항
 
 - **macOS 전용**: AppleScript로 터미널 제어 (Linux/Windows 미지원)
 - **ngrok 필수**: ClickUp Webhook은 외부 URL 필요
-- **Claude Code 설치 필수**: `claude` 명령어가 PATH에 있어야 함
+- **AI 에이전트 설치 필수**: 선택한 AI 에이전트가 PATH에 있어야 함
+  - Claude Code: `npm install -g @anthropic-ai/claude`
+  - OpenCode: `brew install opencode`
+  - Ampcode: `npm install -g @sourcegraph/amp`
 - **4개 병렬 제한**: 각 리스트당 1개 Worker, 동시 4개 태스크 처리
 
-### 7. 릴리즈 배포
+### 8. 릴리즈 배포
 
 #### 개발자용: 새 버전 릴리즈
 
@@ -273,7 +341,7 @@ AI Worker 시작 시 자동으로 `~/.claude/settings.json`에 Hook 설정 추�
 
 ---
 
-### 8. 사용자 설치 가이드 (배포 버전)
+### 9. 사용자 설치 가이드 (배포 버전)
 
 처음 사용하는 분을 위한 상세 가이드입니다.
 
@@ -312,16 +380,16 @@ chmod +x ai-worker
 
 ```bash
 # 설정 파일 다운로드
-curl -L -o config.email.ini https://raw.githubusercontent.com/zime78/SlickWebhook/main/_config.email.ini
+curl -L -o config.aiworker.ini https://raw.githubusercontent.com/zime78/SlickWebhook/main/_config.aiworker.ini
 ```
 
 설정 파일을 열어 필수 항목을 수정합니다:
 
 ```bash
-nano config.email.ini   # 또는 원하는 편집기 사용
+nano config.aiworker.ini   # 또는 원하는 편집기 사용
 ```
 
-> **중요**: `config.email.ini` 파일은 반드시 `ai-worker` 바이너리와 **같은 폴더**에 있어야 합니다.
+> **중요**: `config.aiworker.ini` 파일은 반드시 `ai-worker` 바이너리와 **같은 폴더**에 있어야 합니다.
 
 **필수 설정 항목:**
 
@@ -332,7 +400,8 @@ nano config.email.ini   # 또는 원하는 편집기 사용
 | `SLACK_BOT_TOKEN` | Slack Bot 토큰 |
 | `SLACK_NOTIFY_CHANNEL` | Slack 알림 채널 ID |
 | `AI_01_LIST_ID` | 모니터링할 ClickUp 리스트 ID |
-| `AI_01_SRC_PATH` | Claude Code 실행 경로 |
+| `AI_01_SRC_PATH` | AI 에이전트 실행 경로 |
+| `AI_MODEL_TYPE` | AI 모델 선택 (claude/opencode/ampcode) |
 
 #### Step 4: 테스트 실행 (포그라운드)
 
@@ -435,7 +504,7 @@ LOG_TO_FILE=1 nohup ./ai-worker > /dev/null 2>&1 &
 | 스크립트 | 설명 |
 | -------- | ---- |
 | `test_aiworker_webhook.sh` | AI Worker Webhook 테스트 |
-| `test_hook_server.sh` | Hook Server (Claude Code Stop) 테스트 |
+| `test_hook_server.sh` | Hook Server (AI 에이전트 Stop) 테스트 |
 | `send_slack_test.sh` | Slack 메시지 전송 테스트 |
 | `test_clickup_agent_trigger.sh` | ClickUp Agent 트리거 테스트 |
 

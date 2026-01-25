@@ -25,3 +25,4 @@ jira_issues.db
 /ai-worker
 bin/
 logs/
+config.aiworker.ini

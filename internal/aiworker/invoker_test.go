@@ -112,14 +112,16 @@ type MockInvoker struct {
 	InvokeCalled bool
 	LastWorkDir  string
 	LastPrompt   string
+	LastWorkerID string
 	Result       *InvokeResult
 	Err          error
 }
 
-func (m *MockInvoker) InvokePlan(ctx context.Context, workDir, prompt string) (*InvokeResult, error) {
+func (m *MockInvoker) InvokePlan(ctx context.Context, workDir, prompt, workerID string) (*InvokeResult, error) {
 	m.InvokeCalled = true
 	m.LastWorkDir = workDir
 	m.LastPrompt = prompt
+	m.LastWorkerID = workerID
 	return m.Result, m.Err
 }
 
@@ -134,7 +136,7 @@ func TestMockInvoker(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result, err := mock.InvokePlan(ctx, "/work", "prompt")
+	result, err := mock.InvokePlan(ctx, "/work", "prompt", "AI_01")
 
 	if err != nil {
 		t.Fatalf("에러 발생: %v", err)
@@ -144,6 +146,9 @@ func TestMockInvoker(t *testing.T) {
 	}
 	if mock.LastWorkDir != "/work" {
 		t.Errorf("WorkDir 불일치: %s", mock.LastWorkDir)
+	}
+	if mock.LastWorkerID != "AI_01" {
+		t.Errorf("WorkerID 불일치: %s", mock.LastWorkerID)
 	}
 	if result == nil {
 		t.Error("결과가 nil이면 안됨")
