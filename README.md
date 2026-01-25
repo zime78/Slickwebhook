@@ -1,6 +1,6 @@
 # SlickWebhook
 
-Slack 채널 및 Email(Gmail) 모니터링과 ClickUp 자동 연동 도구입니다.
+Slack 채널, Email(Gmail) 모니터링과 ClickUp 자동 연동 + **AI 코딩 에이전트 자동화** 도구입니다.
 
 > 📌 **개발 지침**: 모든 문서와 내용은 한국어로 작성합니다.
 
@@ -15,8 +15,16 @@ Slack 채널 및 Email(Gmail) 모니터링과 ClickUp 자동 연동 도구입니
 | 히스토리 관리 | ✅ | ✅ (SQLite) | - |
 | 발신자 필터 | ✅ 봇 ID | ✅ 이메일 주소 | - |
 | Slack 알림 | - | ✅ (선택) | ✅ (완료 시) |
-| Claude Code 연동 | - | - | ✅ 자동 실행 |
+| **AI 에이전트 연동** | - | - | ✅ 자동 실행 |
 | 크로스 플랫폼 | ✅ | ✅ | macOS 전용 |
+
+### 🤖 AI Worker 지원 모델
+
+| AI 에이전트 | 지원 | Hook 시스템 | 자동화 수준 |
+|-------------|:----:|:-----------:|:-----------:|
+| **Claude Code** | ✅ | ✅ 내장 HTTP Hook | ⭐⭐⭐ 완전 자동화 |
+| **OpenCode** | ✅ | ✅ 플러그인 이벤트 | ⭐⭐⭐ 완전 자동화 |
+| **Ampcode** | ✅ | ⚠️ 프롬프트 기반 | ⭐⭐ 부분 자동화 |
 
 ---
 
@@ -47,29 +55,31 @@ Slack 채널 및 Email(Gmail) 모니터링과 ClickUp 자동 연동 도구입니
 ### AI Worker
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      AI Worker Service                       │
-├─────────────────────────────────────────────────────────────┤
-│  ClickUp Webhook ──→ Webhook Server ──→ 리스트별 라우팅     │
-│                              │                               │
-│           ┌──────────────────┼──────────────────┐           │
-│           ▼                  ▼                  ▼           │
-│      Worker 1           Worker 2           Worker 3/4       │
-│      (AI_01)            (AI_02)            (AI_03/04)       │
-│           │                  │                  │           │
-│           ▼                  ▼                  ▼           │
-│      Claude Code        Claude Code        Claude Code      │
-│      (터미널 1)         (터미널 2)         (터미널 3/4)     │
-│           │                  │                  │           │
-│           └──────────────────┼──────────────────┘           │
-│                              ▼                               │
-│                    Hook Server (완료 수신)                   │
-│                              │                               │
-│              ┌───────────────┴───────────────┐              │
-│              ▼                               ▼              │
-│      ClickUp 상태 변경              Slack 알림 전송         │
-│      ("개발완료")                   (제목, 링크)            │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      AI Worker Service                          │
+├─────────────────────────────────────────────────────────────────┤
+│  ClickUp Webhook ──→ Webhook Server ──→ 리스트별 라우팅         │
+│                              │                                   │
+│           ┌──────────────────┼──────────────────┐               │
+│           ▼                  ▼                  ▼               │
+│      Worker 1           Worker 2           Worker 3/4           │
+│      (AI_01)            (AI_02)            (AI_03/04)           │
+│           │                  │                  │               │
+│           ▼                  ▼                  ▼               │
+│   ┌───────────────┐  ┌───────────────┐  ┌───────────────┐      │
+│   │ Claude Code   │  │   OpenCode    │  │   Ampcode     │      │
+│   │ (터미널 1)    │  │  (터미널 2)   │  │  (터미널 3/4) │      │
+│   └───────┬───────┘  └───────┬───────┘  └───────┬───────┘      │
+│           │                  │                  │               │
+│           └──────────────────┼──────────────────┘               │
+│                              ▼                                   │
+│                    Hook Server (완료 수신)                       │
+│                              │                                   │
+│              ┌───────────────┴───────────────┐                  │
+│              ▼                               ▼                  │
+│      ClickUp 상태 변경              Slack 알림 전송             │
+│      ("개발완료" + 리스트 이동)     (제목, 링크)                │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 > 📖 상세 아키텍처는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)를 참고하세요.
@@ -84,11 +94,14 @@ Slack 채널 및 Email(Gmail) 모니터링과 ClickUp 자동 연동 도구입니
 # Slack Monitor 설정
 cp _config.ini config.ini
 
-# Email Monitor 설정
+# Email Monitor / AI Worker 설정
 cp _config.email.ini config.email.ini
+
+# AI Worker 전용 설정 (선택)
+cp _config.aiworker.ini config.aiworker.ini
 ```
 
-> ⚠️ `config.ini`와 `config.email.ini`는 `.gitignore`에 포함되어 있어 Git에 커밋되지 않습니다. 보안을 위해 반드시 템플릿 파일을 복사하여 사용하세요.
+> ⚠️ 설정 파일들은 `.gitignore`에 포함되어 Git에 커밋되지 않습니다.
 
 ### 2. Slack Monitor
 
@@ -135,11 +148,17 @@ CLICKUP_LIST_ID=your_list_id
 # 빌드
 make build-ai-worker
 
-# 설정 편집 (config.email.ini에 추가)
+# 설정 편집 (config.aiworker.ini)
 AI_01_LIST_ID=901414115524
 AI_01_SRC_PATH=/path/to/project1
 WEBHOOK_PORT=8080
 HOOK_SERVER_PORT=8081
+
+# AI 모델 선택 (claude/opencode/ampcode)
+AI_MODEL_TYPE=opencode
+
+# 터미널 타입 (terminal/warp)
+TERMINAL_TYPE=warp
 
 # 실행
 ./scripts/start_aiworker.sh
@@ -148,7 +167,76 @@ HOOK_SERVER_PORT=8081
 ./scripts/setup_ngrok.sh
 ```
 
-> 🤖 AI Worker는 ClickUp AI 리스트의 태스크를 감지하여 Claude Code를 자동 실행합니다. 상세 설정은 [CLAUDE.md](CLAUDE.md#ai-worker-사용-가이드)를 참고하세요.
+> 🤖 AI Worker는 ClickUp AI 리스트의 태스크를 감지하여 선택한 AI 에이전트를 자동 실행합니다.
+
+---
+
+## 🤖 AI 모델 설정
+
+### 지원 AI 에이전트
+
+| 설정값 | AI 에이전트 | 실행 명령 | 특징 |
+|--------|-------------|----------|------|
+| `claude` | Claude Code | `claude --permission-mode plan` | 가장 안정적, 내장 Hook |
+| `opencode` | OpenCode (oh-my-opencode) | `opencode --prompt "..."` | TUI 모드, 병렬 에이전트 |
+| `ampcode` | Ampcode (Sourcegraph) | `cat prompt \| amp` | 경량, Hook 미지원 |
+
+### 설정 예시
+
+```ini
+# config.aiworker.ini
+
+# AI 모델 선택 (기본: claude)
+AI_MODEL_TYPE=opencode
+
+# 터미널 타입 (기본: terminal)
+TERMINAL_TYPE=warp
+```
+
+### OpenCode 설정 (oh-my-opencode)
+
+OpenCode 사용 시 추가 설정이 필요합니다:
+
+```bash
+# oh-my-opencode 설정
+~/.config/opencode/oh-my-opencode.json
+```
+
+```json
+{
+  "agents": {
+    "sisyphus": { "model": "google/antigravity-claude-sonnet-4-5-thinking" },
+    "plan": { "model": "google/antigravity-claude-sonnet-4-5-thinking" },
+    "explore": { "model": "google/antigravity-gemini-3-flash" }
+  },
+  "categories": {
+    "quick": { "model": "google/antigravity-gemini-3-flash" },
+    "visual-engineering": { "model": "google/antigravity-claude-sonnet-4-5-thinking" }
+  }
+}
+```
+
+### OpenCode Hook 플러그인
+
+AI Worker와 OpenCode 연동을 위한 플러그인이 함께 제공됩니다:
+
+```bash
+# 플러그인 위치
+~/.config/opencode/plugins/ai-worker-hook.ts
+
+# opencode.json에 플러그인 등록
+{
+  "plugin": [
+    "./plugins/ai-worker-hook.ts"
+  ]
+}
+```
+
+플러그인이 감지하는 이벤트:
+
+- `session.idle`: 세션 완료/대기 → Stop Hook 전송
+- `session.error`: 에러 발생 → 에러 알림 전송
+- `permission.updated`: 권한 요청 → Plan 모드 Hook 전송
 
 ---
 
@@ -172,15 +260,26 @@ SlickWebhook/
 │   ├── emailmonitor/          # Email 모니터 서비스
 │   ├── gmail/                 # Gmail IMAP 클라이언트
 │   ├── aiworker/              # AI Worker 핵심 모듈
+│   │   ├── aimodel/           # AI 모델 핸들러 (NEW)
+│   │   │   ├── interface.go   # AIModelHandler 인터페이스
+│   │   │   ├── claude.go      # Claude Code 핸들러
+│   │   │   ├── opencode.go    # OpenCode 핸들러
+│   │   │   └── ampcode.go     # Ampcode 핸들러
+│   │   ├── config.go          # Worker 설정
+│   │   ├── invoker.go         # AI 도구 실행기
+│   │   ├── manager.go         # Worker 관리자
+│   │   └── worker.go          # 개별 Worker
 │   ├── webhook/               # ClickUp Webhook 서버
 │   ├── hookserver/            # Claude Code Hook 수신
-│   └── claudehook/            # Claude Code 설정 관리
+│   ├── claudehook/            # Claude Code 설정 관리
+│   └── issueformatter/        # 이슈 → AI 프롬프트 변환
 ├── docs/                      # 문서
 │   ├── ARCHITECTURE.md        # 아키텍처 문서
 │   └── CONTRIBUTING.md        # 기여 가이드
 ├── scripts/                   # 유틸리티 스크립트
 ├── _config.ini                # Slack Monitor 설정 템플릿
 ├── _config.email.ini          # Email Monitor 설정 템플릿
+├── _config.aiworker.ini       # AI Worker 설정 템플릿 (NEW)
 ├── Makefile                   # 빌드/테스트 명령
 └── go.mod
 ```
@@ -293,7 +392,7 @@ SlickWebhook/
 | `FILTER_EXCLUDE_SUBJECT` | | 제외할 제목 키워드 (콤마 구분) |
 | `FILTER_LABEL` | | 모니터링할 라벨 (기본: `INBOX`) |
 
-### Slack 알림 (Email Monitor 전용)
+### Slack 알림
 
 | 변수명 | 필수 | 설명 |
 |--------|:----:|------|
@@ -310,7 +409,7 @@ SlickWebhook/
 | `JIRA_BASE_URL` | | Jira 이슈 링크 생성용 (예: `https://example.atlassian.net`) |
 | `HISTORY_MAX_SIZE` | | 히스토리 최대 개수 (기본: `100`) |
 
-### AI Worker (config.email.ini)
+### AI Worker (config.aiworker.ini)
 
 | 변수명 | 필수 | 설명 |
 |--------|:----:|------|
@@ -327,6 +426,8 @@ SlickWebhook/
 | `AI_STATUS_WORKING` | | 작업중 상태명 (기본: `작업중`) |
 | `AI_STATUS_COMPLETED` | | 완료 상태명 (기본: `개발완료`) |
 | `AI_COMPLETED_LIST_ID` | | 완료된 태스크 이동 리스트 ID |
+| **`AI_MODEL_TYPE`** | | **AI 모델 선택 (`claude`/`opencode`/`ampcode`, 기본: `claude`)** |
+| **`TERMINAL_TYPE`** | | **터미널 타입 (`terminal`/`warp`, 기본: `terminal`)** |
 
 ---
 
@@ -362,8 +463,10 @@ SlickWebhook/
 - [Slack API - conversations.history](https://api.slack.com/methods/conversations.history)
 - [Gmail API - IMAP](https://developers.google.com/gmail/imap)
 - [ClickUp API](https://developer.clickup.com/)
-- [slack-go/slack SDK](https://github.com/slack-go/slack)
-- [emersion/go-imap](https://github.com/emersion/go-imap)
+- [Claude Code](https://code.claude.ai/)
+- [OpenCode](https://opencode.ai/)
+- [Ampcode](https://ampcode.com/)
+- [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode)
 
 ---
 
@@ -382,3 +485,4 @@ SlickWebhook/
 | [oauth2](https://pkg.go.dev/golang.org/x/oauth2) | BSD-3-Clause |
 | [gorilla/websocket](https://github.com/gorilla/websocket) | BSD-2-Clause |
 | [cloud.google.com/go](https://github.com/googleapis/google-cloud-go) | Apache-2.0 |
+| [lumberjack](https://github.com/natefinch/lumberjack) | MIT |

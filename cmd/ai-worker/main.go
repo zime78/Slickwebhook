@@ -75,8 +75,8 @@ func main() {
 	// issueformatter 생성
 	formatter := issueformatter.NewIssueFormatter(issueformatter.DefaultConfig())
 
-	// Claude Code Invoker 생성 (Hook 서버 포트 및 터미널 타입 설정)
-	invoker := aiworker.NewDefaultInvokerWithConfig(workerConfig.HookServerPort, workerConfig.TerminalType)
+	// AI 모델 Invoker 생성 (Hook 서버 포트, 터미널 타입, AI 모델 타입 설정)
+	invoker := aiworker.NewDefaultInvokerWithModel(workerConfig.HookServerPort, workerConfig.TerminalType, workerConfig.AIModelType)
 
 	// Manager 생성 및 의존성 주입
 	manager := aiworker.NewManager(workerConfig)
@@ -361,6 +361,20 @@ func loadWorkerConfig(logger *log.Logger) aiworker.Config {
 	} else {
 		config.TerminalType = aiworker.TerminalTypeDefault
 		logger.Printf("[AI Worker] 터미널 타입 설정: Terminal")
+	}
+
+	// AI 모델 타입 설정 (claude/opencode/ampcode, 기본: claude)
+	aiModelType := os.Getenv("AI_MODEL_TYPE")
+	switch aiModelType {
+	case "opencode":
+		config.AIModelType = aiworker.AIModelOpenCode
+		logger.Printf("[AI Worker] AI 모델 설정: OpenCode")
+	case "ampcode":
+		config.AIModelType = aiworker.AIModelAmpcode
+		logger.Printf("[AI Worker] AI 모델 설정: Ampcode")
+	default:
+		config.AIModelType = aiworker.AIModelClaude
+		logger.Printf("[AI Worker] AI 모델 설정: Claude")
 	}
 
 	return config

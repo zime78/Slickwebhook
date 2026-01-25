@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/zime/slickwebhook/internal/aiworker/aimodel"
 )
 
 // ClaudeInvoker는 Claude Code를 실행하는 인터페이스입니다.
@@ -21,17 +23,19 @@ type InvokeResult struct {
 	StartedAt string // 시작 시간 (ISO 8601)
 }
 
-// DefaultInvoker는 실제 Claude Code를 실행합니다.
+// DefaultInvoker는 실제 AI 모델을 실행합니다.
 type DefaultInvoker struct {
 	hookServerPort int
 	terminalType   TerminalType
+	aiModelHandler aimodel.AIModelHandler
 }
 
 // NewDefaultInvoker는 새 DefaultInvoker를 생성합니다.
 func NewDefaultInvoker() *DefaultInvoker {
 	return &DefaultInvoker{
-		hookServerPort: 8081,                // 기본 포트
-		terminalType:   TerminalTypeDefault, // 기본 터미널
+		hookServerPort: 8081,                                       // 기본 포트
+		terminalType:   TerminalTypeDefault,                        // 기본 터미널
+		aiModelHandler: aimodel.NewClaudeHandler(8081, "terminal"), // 기본 AI 모델: Claude
 	}
 }
 
@@ -40,6 +44,7 @@ func NewDefaultInvokerWithPort(port int) *DefaultInvoker {
 	return &DefaultInvoker{
 		hookServerPort: port,
 		terminalType:   TerminalTypeDefault,
+		aiModelHandler: aimodel.NewClaudeHandler(port, "terminal"),
 	}
 }
 
@@ -48,6 +53,16 @@ func NewDefaultInvokerWithConfig(port int, terminalType TerminalType) *DefaultIn
 	return &DefaultInvoker{
 		hookServerPort: port,
 		terminalType:   terminalType,
+		aiModelHandler: aimodel.NewClaudeHandler(port, string(terminalType)),
+	}
+}
+
+// NewDefaultInvokerWithModel은 AI 모델 타입을 포함한 전체 설정으로 DefaultInvoker를 생성합니다.
+func NewDefaultInvokerWithModel(port int, terminalType TerminalType, modelType aimodel.AIModelType) *DefaultInvoker {
+	return &DefaultInvoker{
+		hookServerPort: port,
+		terminalType:   terminalType,
+		aiModelHandler: aimodel.GetAIModelHandler(modelType, port, string(terminalType)),
 	}
 }
 
@@ -56,7 +71,12 @@ func (i *DefaultInvoker) GetTerminalType() TerminalType {
 	return i.terminalType
 }
 
-// InvokePlan은 Claude Code를 플랜 모드로 실행합니다.
+// GetAIModelType은 현재 AI 모델 타입을 반환합니다.
+func (i *DefaultInvoker) GetAIModelType() aimodel.AIModelType {
+	return i.aiModelHandler.GetType()
+}
+
+// InvokePlan은 AI 모델을 플랜 모드로 실행합니다.
 // macOS에서 새 터미널 창을 열어 실행합니다.
 func (i *DefaultInvoker) InvokePlan(ctx context.Context, workDir, prompt, workerID string) (*InvokeResult, error) {
 	// TDD 문구 추가
@@ -82,7 +102,7 @@ func (i *DefaultInvoker) InvokePlan(ctx context.Context, workDir, prompt, worker
 	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
 	if err := cmd.Run(); err != nil {
 		os.Remove(tmpPath)
-		return nil, fmt.Errorf("Claude Code 실행 실패: %w", err)
+		return nil, fmt.Errorf("AI 도구 실행 실패: %w", err)
 	}
 
 	// 임시 파일은 터미널에서 실행 후 삭제됨 (스크립트에서 처리)
@@ -148,30 +168,18 @@ func (i *DefaultInvoker) AddTDDSuffix(prompt string) string {
 }
 
 // GetTaskCompleteInstruction는 작업 완료 시 알림을 보내도록 하는 프롬프트 지시를 반환합니다.
+// AIModelHandler를 통해 모델별 지시를 가져옵니다.
 func (i *DefaultInvoker) GetTaskCompleteInstruction() string {
-	return fmt.Sprintf(`
-
----
-## 중요: 작업 완료 알림
-
-모든 작업이 완료되면 반드시 아래 명령을 실행하여 Slack으로 완료 알림을 보내세요:
-
-`+"```bash"+`
-curl -s -X POST http://localhost:%d/hook/task-complete -H 'Content-Type: application/json' -d '{"cwd": "'$(pwd)'", "status": "completed"}'
-`+"```"+`
-
-작업이 완료되지 않았거나 에러가 발생한 경우에는 이 명령을 실행하지 마세요.
----`, i.hookServerPort)
+	return i.aiModelHandler.GetTaskCompleteInstruction()
 }
 
-// BuildAppleScriptWithFile는 파일에서 프롬프트를 읽어 Claude Code를 실행하는 AppleScript를 생성합니다.
-// 프롬프트를 임시 파일에 저장하고 cat으로 읽어서 claude에 전달합니다.
+// BuildAppleScriptWithFile는 파일에서 프롬프트를 읽어 AI 도구를 실행하는 AppleScript를 생성합니다.
+// 프롬프트를 임시 파일에 저장하고 cat으로 읽어서 AI 도구에 전달합니다.
 func (i *DefaultInvoker) BuildAppleScriptWithFile(workDir, promptFilePath, workerID string) string {
 	// 경로에 작은따옴표가 있으면 이스케이프
 	escapedWorkDir := strings.ReplaceAll(workDir, "'", "'\\''")
 	escapedFilePath := strings.ReplaceAll(promptFilePath, "'", "'\\''")
 
-	// TerminalHandler를 통해 AppleScript 생성
-	handler := GetTerminalHandler(i.terminalType)
-	return handler.BuildInvokeScript(escapedWorkDir, escapedFilePath, workerID)
+	// AIModelHandler를 통해 AppleScript 생성
+	return i.aiModelHandler.BuildInvokeScript(escapedWorkDir, escapedFilePath, workerID)
 }
