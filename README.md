@@ -116,8 +116,11 @@ POLL_INTERVAL=10s
 CLICKUP_API_TOKEN=pk_your_token
 CLICKUP_LIST_ID=your_list_id
 
-# 실행
-./slack-monitor
+# 실행 (CLI 옵션)
+./slack-monitor --help     # 도움말
+./slack-monitor --bg       # 백그라운드 실행
+./slack-monitor --status   # 상태 확인
+./slack-monitor --stop     # 종료
 ```
 
 ### 3. Email Monitor
@@ -136,8 +139,11 @@ FILTER_FROM=jira@atlassian.com
 CLICKUP_API_TOKEN=pk_your_token
 CLICKUP_LIST_ID=your_list_id
 
-# 실행
-./email-monitor
+# 실행 (CLI 옵션)
+./email-monitor --help     # 도움말
+./email-monitor --bg       # 백그라운드 실행
+./email-monitor --status   # 상태 확인
+./email-monitor --stop     # 종료
 ```
 
 > 📧 Gmail OAuth 설정 방법은 [Gmail OAuth 설정 가이드](#-gmail-oauth-설정)를 참고하세요.
