@@ -15,6 +15,7 @@ import (
 
 	"github.com/zime/slickwebhook/internal/aiworker"
 	"github.com/zime/slickwebhook/internal/claudehook"
+	"github.com/zime/slickwebhook/internal/cli"
 	"github.com/zime/slickwebhook/internal/clickup"
 	"github.com/zime/slickwebhook/internal/config"
 	"github.com/zime/slickwebhook/internal/hookserver"
@@ -25,6 +26,23 @@ import (
 )
 
 func main() {
+	// CLI 인자 파싱
+	if cli.ParseArgs(cli.AppInfo{
+		Name:        "AI-Worker",
+		Description: "ClickUp AI 리스트 → AI 에이전트 자동 실행 (Claude/OpenCode/Ampcode)",
+		Version:     cli.GetVersion(),
+		ConfigFile:  "config.aiworker.ini",
+		Usage: `  AI Worker는 ClickUp AI 리스트의 태스크를 감지하여 
+  선택한 AI 에이전트를 자동 실행합니다.
+  
+  지원 AI 모델:
+    - claude   : Claude Code (기본값)
+    - opencode : OpenCode (oh-my-opencode)
+    - ampcode  : Ampcode (Sourcegraph)`,
+	}) {
+		return
+	}
+
 	// 로거 설정 (LOG_TO_FILE 환경변수로 파일 로깅 활성화)
 	var logWriter io.Writer = os.Stdout
 
