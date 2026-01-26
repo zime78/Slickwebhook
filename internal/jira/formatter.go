@@ -14,6 +14,10 @@ func ReformatDescription(description string, attachmentURLs []string) string {
 		return ""
 	}
 
+	// CRLF를 LF로 정규화
+	description = strings.ReplaceAll(description, "\r\n", "\n")
+	description = strings.ReplaceAll(description, "\r", "\n")
+
 	// 섹션 분리를 위한 패턴
 	// [오류내용], [수정요청]도 인식 (Jira에서 직접 사용되는 헤더)
 	sectionPattern := regexp.MustCompile(`\[(재현 ?스텝|현 ?결과|오류 ?내용|기대 ?결과|수정 ?요청|추가 ?정보)\]`)
@@ -105,6 +109,10 @@ func ReformatDescription(description string, attachmentURLs []string) string {
 
 // formatAsNumberedList는 내용을 번호 있는 목록으로 변환합니다.
 func formatAsNumberedList(content string) string {
+	// CRLF를 LF로 정규화
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+
 	lines := strings.Split(content, "\n")
 	var result strings.Builder
 	lineNum := 1
@@ -163,8 +171,13 @@ func collapseEmptyLines(content string) string {
 	return strings.TrimSpace(result.String())
 }
 
-// removeEmptyLines는 빈 줄을 완전히 제거합니다.
+// removeEmptyLines는 빈 줄을 완전히 제거하고 텍스트 간격을 정리합니다.
+// CRLF를 LF로 정규화하고, 연속된 빈 줄을 제거합니다.
 func removeEmptyLines(content string) string {
+	// CRLF를 LF로 정규화
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+
 	lines := strings.Split(content, "\n")
 	var result strings.Builder
 

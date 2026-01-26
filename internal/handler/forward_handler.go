@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"regexp"
 	"strings"
@@ -290,23 +291,43 @@ func (h *ForwardHandler) extractJiraIssueKey(text string) string {
 	return issueKeyPattern.FindString(text)
 }
 
-// uploadJiraAttachments는 Jira 첨부파일을 ClickUp에 업로드합니다.
-func (h *ForwardHandler) uploadJiraAttachments(ctx context.Context, taskID string, attachments []jira.Attachment) {
+// uploadJiraAttachments는 Jira 첨부파일(이미지/동영상)을 ClickUp에 업로드합니다.
+func (h *ForwardHandler) uploadJiraAttachments(_ context.Context, taskID string, attachments []jira.Attachment) {
 	for _, att := range attachments {
-		h.logger.Printf("[FORWARD] 📤 이미지 업로드 중: %s\n", att.Filename)
+		// 파일 크기 포맷팅 (KB/MB)
+		sizeStr := formatFileSize(att.Size)
+		h.logger.Printf("[FORWARD] 📤 미디어 업로드 중: %s (%s)\n", att.Filename, sizeStr)
 
-		// Jira에서 이미지 다운로드
-		data, err := h.jiraClient.DownloadAttachment(ctx, att.Content)
+		// 각 파일마다 별도 타임아웃 적용 (60초 - 큰 동영상 파일도 처리 가능)
+		uploadCtx, uploadCancel := context.WithTimeout(context.Background(), 60*time.Second)
+
+		// Jira에서 미디어 다운로드
+		data, err := h.jiraClient.DownloadAttachment(uploadCtx, att.Content)
 		if err != nil {
-			h.logger.Printf("[FORWARD] ⚠️ 이미지 다운로드 실패 (%s): %v\n", att.Filename, err)
+			h.logger.Printf("[FORWARD] ⚠️ 미디어 다운로드 실패 (%s): %v\n", att.Filename, err)
+			uploadCancel()
 			continue
 		}
 
+		h.logger.Printf("[FORWARD] 📥 미디어 다운로드 완료: %s (실제 크기: %s)\n", att.Filename, formatFileSize(len(data)))
+
 		// ClickUp에 업로드
-		if err := h.clickupClient.UploadAttachment(ctx, taskID, att.Filename, data); err != nil {
-			h.logger.Printf("[FORWARD] ⚠️ 이미지 업로드 실패 (%s): %v\n", att.Filename, err)
+		if err := h.clickupClient.UploadAttachment(uploadCtx, taskID, att.Filename, data); err != nil {
+			h.logger.Printf("[FORWARD] ⚠️ 미디어 업로드 실패 (%s): %v\n", att.Filename, err)
 		} else {
-			h.logger.Printf("[FORWARD] ✅ 이미지 업로드 성공: %s\n", att.Filename)
+			h.logger.Printf("[FORWARD] ✅ 미디어 업로드 성공: %s\n", att.Filename)
 		}
+		uploadCancel()
+	}
+}
+
+// formatFileSize는 바이트 크기를 사람이 읽기 쉬운 형태로 변환합니다.
+func formatFileSize(size int) string {
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	} else if size < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", float64(size)/1024)
+	} else {
+		return fmt.Sprintf("%.1f MB", float64(size)/(1024*1024))
 	}
 }
