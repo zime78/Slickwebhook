@@ -229,21 +229,51 @@ export const AIWorkerHookPlugin = async ({ project, client, $, directory, worktr
 
 ### 4. 실행 방법
 
+#### 바이너리 직접 실행 (권장)
+
 ```bash
-# AI Worker 포그라운드 실행 (개발 모드)
+# 도움말 표시
+./ai-worker --help
+
+# 포그라운드 실행
+./ai-worker
+
+# 백그라운드 실행
+./ai-worker --bg
+
+# 상태 확인
+./ai-worker --status
+
+# 종료
+./ai-worker --stop
+```
+
+#### 스크립트 사용 (대안)
+
+```bash
+# 포그라운드 실행 (개발 모드)
 ./scripts/start_aiworker.sh
 
-# AI Worker 백그라운드 실행 (운영 모드)
+# 백그라운드 실행 (운영 모드)
 ./scripts/start_aiworker.sh --bg
 ```
 
-#### 백그라운드 실행
+#### CLI 옵션
+
+| 옵션 | 설명 |
+| ------ | ---- |
+| `--help`, `-h` | 도움말 표시 |
+| `--version`, `-v` | 버전 정보 표시 |
+| `--bg` | 백그라운드로 실행 |
+| `--status` | 실행 상태 확인 |
+| `--stop` | 실행 중인 프로세스 종료 |
+
+#### 로그 확인
 
 | 명령어 | 설명 |
 | ------ | ---- |
-| `./scripts/start_aiworker.sh --bg` | 백그라운드로 시작 |
-| `./scripts/stop_aiworker.sh` | 종료 |
-| `tail -f logs/aiworker.log` | 로그 실시간 확인 |
+| `./ai-worker --status` | 상태 및 로그 경로 확인 |
+| `tail -f logs/ai-worker.log` | 로그 실시간 확인 |
 
 **로그 로테이션 설정** (자동 적용):
 

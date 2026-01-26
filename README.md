@@ -160,8 +160,11 @@ AI_MODEL_TYPE=opencode
 # 터미널 타입 (terminal/warp)
 TERMINAL_TYPE=warp
 
-# 실행
-./scripts/start_aiworker.sh
+# 실행 (CLI 옵션)
+./ai-worker --help     # 도움말
+./ai-worker --bg       # 백그라운드 실행
+./ai-worker --status   # 상태 확인
+./ai-worker --stop     # 종료
 
 # ngrok으로 Webhook URL 외부 노출 (별도 터미널)
 ./scripts/setup_ngrok.sh
