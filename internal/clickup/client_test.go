@@ -441,11 +441,10 @@ func TestClickUpClient_MoveTaskToList(t *testing.T) {
 			t.Error("Authorization 헤더가 없음")
 		}
 
-		// 요청 바디 확인
-		var body map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&body)
-		if body["list"] != "901413896178" {
-			t.Errorf("리스트 ID가 올바르지 않음: %v", body["list"])
+		// URL 경로 검증 (v3 API는 URL에 리스트 ID 포함)
+		expectedPath := "/workspaces/team123/tasks/task123/home_list/901413896178"
+		if r.URL.Path != expectedPath {
+			t.Errorf("URL 경로가 올바르지 않음: got %s, want %s", r.URL.Path, expectedPath)
 		}
 
 		// 응답 반환
@@ -462,7 +461,7 @@ func TestClickUpClient_MoveTaskToList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{APIToken: "test-token", ListID: "123456"}
+	config := Config{APIToken: "test-token", ListID: "123456", TeamID: "team123"}
 	client := NewClickUpClient(config)
 	client.baseURL = server.URL
 

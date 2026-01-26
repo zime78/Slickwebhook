@@ -477,8 +477,12 @@ func (c *ClickUpClient) MoveTaskToList(ctx context.Context, taskID string, listI
 		return fmt.Errorf("리스트 이동 실패: TeamID가 설정되지 않음")
 	}
 
-	// v3 API 엔드포인트 사용
-	reqURL := fmt.Sprintf("https://api.clickup.com/api/v3/workspaces/%s/tasks/%s/home_list/%s", c.config.TeamID, taskID, listID)
+	// v3 API 엔드포인트 사용 (baseURL이 테스트용으로 변경될 수 있음)
+	baseURL := c.baseURL
+	if baseURL == "https://api.clickup.com/api/v2" {
+		baseURL = "https://api.clickup.com/api/v3"
+	}
+	reqURL := fmt.Sprintf("%s/workspaces/%s/tasks/%s/home_list/%s", baseURL, c.config.TeamID, taskID, listID)
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, nil)
 	if err != nil {
