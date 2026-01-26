@@ -187,6 +187,7 @@ build-all: clean build-slack-all build-email-all build-ai-worker-all
 	@echo "✅ 모든 플랫폼 빌드 완료!"
 	@cp config.ini $(BUILD_DIR)/config.ini 2>/dev/null || true
 	@cp config.email.ini $(BUILD_DIR)/config.email.ini 2>/dev/null || true
+	@cp config.aiworker.ini $(BUILD_DIR)/config.aiworker.ini 2>/dev/null || true
 	@echo "📄 설정 파일 복사됨"
 	@ls -la $(BUILD_DIR)/
 
