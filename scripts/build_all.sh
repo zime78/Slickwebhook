@@ -31,18 +31,21 @@ case "$PLATFORM" in
         echo ""
         make build-slack-darwin && echo "   ✅ Slack Monitor (macOS)"
         make build-email-darwin && echo "   ✅ Email Monitor (macOS)"
+        make build-ai-worker-darwin && echo "   ✅ AI Worker (macOS)"
         ;;
     linux)
         echo "🐧 Linux 빌드..."
         echo ""
         make build-slack-linux && echo "   ✅ Slack Monitor (Linux)"
         make build-email-linux && echo "   ✅ Email Monitor (Linux)"
+        make build-ai-worker-linux && echo "   ✅ AI Worker (Linux)"
         ;;
     windows)
         echo "🪟 Windows 빌드..."
         echo ""
         make build-slack-windows && echo "   ✅ Slack Monitor (Windows)"
         make build-email-windows && echo "   ✅ Email Monitor (Windows)"
+        make build-ai-worker-windows && echo "   ✅ AI Worker (Windows)"
         ;;
     all)
         echo "🌍 모든 플랫폼 빌드..."

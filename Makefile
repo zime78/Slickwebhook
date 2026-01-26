@@ -148,11 +148,42 @@ build-email-windows:
 	@echo "  ✅ windows-x86"
 
 # ============================================
-# 전체 빌드 (Slack + Email)
+# 크로스 플랫폼 빌드 - AI Worker
+# ============================================
+
+# AI Worker 모든 플랫폼 빌드
+build-ai-worker-all: build-ai-worker-darwin build-ai-worker-linux build-ai-worker-windows
+	@echo "✅ AI Worker 모든 플랫폼 빌드 완료!"
+
+# macOS (Apple Silicon + Intel)
+build-ai-worker-darwin:
+	@echo "🤖 AI Worker macOS 빌드 중..."
+	@mkdir -p $(BUILD_DIR)
+	GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-macos-apple-silicon ./cmd/ai-worker
+	GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-macos-intel ./cmd/ai-worker
+	@echo "  ✅ macos-apple-silicon, macos-intel"
+
+# Linux (x86 + ARM)
+build-ai-worker-linux:
+	@echo "🤖 AI Worker Linux 빌드 중..."
+	@mkdir -p $(BUILD_DIR)
+	GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-linux-x86 ./cmd/ai-worker
+	GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-linux-arm ./cmd/ai-worker
+	@echo "  ✅ linux-x86, linux-arm"
+
+# Windows (x86)
+build-ai-worker-windows:
+	@echo "🤖 AI Worker Windows 빌드 중..."
+	@mkdir -p $(BUILD_DIR)
+	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-windows-x86.exe ./cmd/ai-worker
+	@echo "  ✅ windows-x86"
+
+# ============================================
+# 전체 빌드 (Slack + Email + AI Worker)
 # ============================================
 
 # 모든 플랫폼 빌드 (clean 후 빌드)
-build-all: clean build-slack-all build-email-all
+build-all: clean build-slack-all build-email-all build-ai-worker-all
 	@echo "✅ 모든 플랫폼 빌드 완료!"
 	@cp config.ini $(BUILD_DIR)/config.ini 2>/dev/null || true
 	@cp config.email.ini $(BUILD_DIR)/config.email.ini 2>/dev/null || true
