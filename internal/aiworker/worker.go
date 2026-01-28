@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sync"
+	"time"
 
 	"github.com/zime/slickwebhook/internal/clickup"
 	"github.com/zime/slickwebhook/internal/issueformatter"
@@ -15,6 +16,7 @@ type ClickUpClientInterface interface {
 	GetTask(ctx context.Context, taskID string) (*clickup.Task, error)
 	GetTasks(ctx context.Context, listID string, opts *clickup.GetTasksOptions) ([]*clickup.Task, error)
 	UpdateTaskStatus(ctx context.Context, taskID, status string) error
+	UpdateTaskDates(ctx context.Context, taskID string, startDate, dueDate *time.Time) error
 	MoveTaskToList(ctx context.Context, taskID, listID string) error
 }
 
@@ -93,6 +95,12 @@ func (w *Worker) ProcessTask(ctx context.Context, taskID string) error {
 		return fmt.Errorf("상태 변경 실패: %w", err)
 	}
 
+	// 시작 날짜 설정
+	now := time.Now()
+	if err := w.clickupClient.UpdateTaskDates(ctx, taskID, &now, nil); err != nil {
+		fmt.Printf("[%s] ⚠️ 시작 날짜 설정 실패: %v\n", w.config.ID, err)
+	}
+
 	// 프롬프트 생성
 	prompt := w.buildPrompt(ctx, task)
 
@@ -132,6 +140,12 @@ func (w *Worker) CompleteTask(ctx context.Context) error {
 	// 상태를 "개발완료"로 변경
 	if err := w.clickupClient.UpdateTaskStatus(ctx, taskID, w.statusCompleted); err != nil {
 		return fmt.Errorf("완료 상태 변경 실패: %w", err)
+	}
+
+	// 종료 날짜 설정
+	now := time.Now()
+	if err := w.clickupClient.UpdateTaskDates(ctx, taskID, nil, &now); err != nil {
+		fmt.Printf("[%s] ⚠️ 종료 날짜 설정 실패: %v\n", w.config.ID, err)
 	}
 
 	// 완료 리스트로 이동 (설정된 경우에만)

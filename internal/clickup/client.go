@@ -22,6 +22,7 @@ type Client interface {
 	GetTask(ctx context.Context, taskID string) (*Task, error)
 	GetTasks(ctx context.Context, listID string, opts *GetTasksOptions) ([]*Task, error)
 	UpdateTaskStatus(ctx context.Context, taskID string, status string) error
+	UpdateTaskDates(ctx context.Context, taskID string, startDate, dueDate *time.Time) error
 	MoveTaskToList(ctx context.Context, taskID string, listID string) error
 }
 
@@ -441,6 +442,52 @@ func (c *ClickUpClient) UpdateTaskStatus(ctx context.Context, taskID string, sta
 
 	payload := map[string]interface{}{
 		"status": status,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("페이로드 직렬화 실패: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return fmt.Errorf("요청 생성 실패: %w", err)
+	}
+
+	req.Header.Set("Authorization", c.config.APIToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("API 호출 실패: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API 에러 (상태코드: %d): %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// UpdateTaskDates는 태스크의 시작/종료 날짜를 설정합니다.
+// API: PUT /api/v2/task/{task_id}
+// nil인 필드는 전송하지 않습니다.
+func (c *ClickUpClient) UpdateTaskDates(ctx context.Context, taskID string, startDate, dueDate *time.Time) error {
+	reqURL := fmt.Sprintf("%s/task/%s", c.baseURL, taskID)
+
+	payload := map[string]interface{}{}
+	if startDate != nil {
+		payload["start_date"] = startDate.UnixMilli()
+	}
+	if dueDate != nil {
+		payload["due_date"] = dueDate.UnixMilli()
+	}
+
+	// 설정할 날짜가 없으면 API 호출 생략
+	if len(payload) == 0 {
+		return nil
 	}
 
 	payloadBytes, err := json.Marshal(payload)

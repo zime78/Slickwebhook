@@ -137,11 +137,7 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 				h.logger.Printf("[FORWARD] 📎 첨부 미디어: %d개\n", len(imageAttachments))
 
 				// 본문 재구성 ([현 결과] → [오류내용], [기대 결과] → [수정요청])
-				urls := make([]string, len(imageAttachments))
-				for i, img := range imageAttachments {
-					urls[i] = img.Content
-				}
-				reformattedDesc := jira.ReformatDescription(detail.Description, urls)
+				reformattedDesc := jira.ReformatDescription(detail.Description, imageAttachments)
 
 				// 메시지 복사본 생성 (원본 수정 방지)
 				msgCopy := *msg

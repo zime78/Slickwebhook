@@ -21,8 +21,11 @@ func TestReformatDescription_AllSections(t *testing.T) {
 [추가 정보]
 테스트 환경: QA`
 
-	attachmentURLs := []string{"https://example.com/image1.png", "https://example.com/image2.png"}
-	result := ReformatDescription(input, attachmentURLs)
+	attachments := []Attachment{
+		{Filename: "image1.png", MimeType: "image/png", Content: "https://example.com/image1.png"},
+		{Filename: "image2.png", MimeType: "image/png", Content: "https://example.com/image2.png"},
+	}
+	result := ReformatDescription(input, attachments)
 
 	// 섹션 라벨 변환 확인
 	if !strings.Contains(result, "[재현 스텝]") {
@@ -38,9 +41,12 @@ func TestReformatDescription_AllSections(t *testing.T) {
 		t.Error("[추가 정보] 섹션이 있어야 함")
 	}
 
-	// 이미지 안내 확인 ("이미지 첨부" 형식)
-	if !strings.Contains(result, "이미지 첨부") {
-		t.Error("이미지 첨부 안내가 있어야 함")
+	// 실제 파일명 표시 확인
+	if !strings.Contains(result, "이미지: image1.png") {
+		t.Error("이미지 파일명이 표시되어야 함")
+	}
+	if !strings.Contains(result, "이미지: image2.png") {
+		t.Error("두 번째 이미지 파일명이 표시되어야 함")
 	}
 
 	t.Logf("결과:\n%s", result)
@@ -133,10 +139,13 @@ func TestReformatDescription_OneImage(t *testing.T) {
 [기대 결과]
 정상 화면`
 
-	result := ReformatDescription(input, []string{"https://example.com/image.png"})
+	attachments := []Attachment{
+		{Filename: "image.png", MimeType: "image/png", Content: "https://example.com/image.png"},
+	}
+	result := ReformatDescription(input, attachments)
 
-	// [오류내용]에만 이미지 안내가 있어야 함
-	count := strings.Count(result, "이미지 첨부")
+	// [오류내용]에만 파일명 안내가 있어야 함
+	count := strings.Count(result, "이미지: image.png")
 	if count != 1 {
 		t.Errorf("이미지 1개면 안내도 1개: got %d", count)
 	}
@@ -183,7 +192,10 @@ func TestReformatDescription_DirectHeaders(t *testing.T) {
 테스트 버전 : AOS 2.0.0(2)
 테스트 계정 : ianbyun02@gmail.com`
 
-	result := ReformatDescription(input, []string{"https://example.com/image.png"})
+	attachments := []Attachment{
+		{Filename: "image.png", MimeType: "image/png", Content: "https://example.com/image.png"},
+	}
+	result := ReformatDescription(input, attachments)
 
 	// [오류내용] 섹션이 있어야 함
 	if !strings.Contains(result, "[오류내용]") {
@@ -206,4 +218,83 @@ func TestReformatDescription_DirectHeaders(t *testing.T) {
 	}
 
 	t.Logf("결과:\n%s", result)
+}
+
+func TestReformatDescription_VideoAttachment(t *testing.T) {
+	// 동영상 첨부파일이 "동영상: filename"으로 표시되는지 확인
+	input := `[현 결과]
+오류 화면
+
+[기대 결과]
+정상 화면`
+
+	attachments := []Attachment{
+		{Filename: "screen_recording.mp4", MimeType: "video/mp4", Content: "https://example.com/video.mp4"},
+		{Filename: "expected.png", MimeType: "image/png", Content: "https://example.com/image.png"},
+	}
+	result := ReformatDescription(input, attachments)
+
+	if !strings.Contains(result, "동영상: screen_recording.mp4") {
+		t.Error("동영상 파일명이 표시되어야 함")
+	}
+	if !strings.Contains(result, "이미지: expected.png") {
+		t.Error("이미지 파일명이 표시되어야 함")
+	}
+
+	t.Logf("결과:\n%s", result)
+}
+
+func TestReformatDescription_MixedAttachments(t *testing.T) {
+	// 이미지 + 동영상 혼합 시 각각 올바른 라벨 표시 확인
+	input := `[현 결과]
+설정 값이 서로 연동됩니다
+
+[기대 결과]
+각각 설정되어야 합니다`
+
+	attachments := []Attachment{
+		{Filename: "image-20260128.png", MimeType: "image/png", Content: "https://example.com/img.png"},
+		{Filename: "스크린트레이닝.mp4", MimeType: "video/mp4", Content: "https://example.com/v1.mp4"},
+		{Filename: "Screen_Recording.mp4", MimeType: "video/mp4", Content: "https://example.com/v2.mp4"},
+	}
+	result := ReformatDescription(input, attachments)
+
+	// [오류내용]에 모든 첨부파일 표시
+	if !strings.Contains(result, "이미지: image-20260128.png") {
+		t.Error("이미지 파일명이 [오류내용]에 표시되어야 함")
+	}
+	if !strings.Contains(result, "동영상: 스크린트레이닝.mp4") {
+		t.Error("동영상 파일명이 [오류내용]에 표시되어야 함")
+	}
+	if !strings.Contains(result, "동영상: Screen_Recording.mp4") {
+		t.Error("두 번째 동영상 파일명이 [오류내용]에 표시되어야 함")
+	}
+
+	// [수정요청]에도 두 번째 이후 첨부파일 표시
+	if !strings.Contains(result, "[수정요청]") {
+		t.Error("[수정요청] 섹션이 있어야 함")
+	}
+
+	t.Logf("결과:\n%s", result)
+}
+
+func TestFormatAttachmentLabel(t *testing.T) {
+	tests := []struct {
+		name string
+		att  Attachment
+		want string
+	}{
+		{"이미지", Attachment{Filename: "bug.png", MimeType: "image/png"}, "이미지: bug.png"},
+		{"동영상", Attachment{Filename: "demo.mp4", MimeType: "video/mp4"}, "동영상: demo.mp4"},
+		{"동영상_MOV", Attachment{Filename: "record.mov", MimeType: "video/quicktime"}, "동영상: record.mov"},
+		{"기타", Attachment{Filename: "log.txt", MimeType: "text/plain"}, "첨부: log.txt"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatAttachmentLabel(tt.att)
+			if got != tt.want {
+				t.Errorf("formatAttachmentLabel() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

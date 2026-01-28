@@ -490,3 +490,110 @@ func TestClickUpClient_MoveTaskToList_Error(t *testing.T) {
 		t.Error("에러가 발생해야 합니다")
 	}
 }
+
+// TestClickUpClient_UpdateTaskDates는 태스크 날짜 설정을 테스트합니다.
+func TestClickUpClient_UpdateTaskDates(t *testing.T) {
+	testTime := time.Date(2026, 1, 28, 15, 30, 0, 0, time.UTC)
+	expectedMillis := testTime.UnixMilli()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 요청 검증
+		if r.Method != "PUT" {
+			t.Errorf("잘못된 메서드: %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != "test-token" {
+			t.Error("Authorization 헤더가 없음")
+		}
+
+		// 요청 바디 확인
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+
+		if body["start_date"] == nil {
+			t.Error("start_date가 있어야 함")
+		}
+		if int64(body["start_date"].(float64)) != expectedMillis {
+			t.Errorf("start_date 값 불일치: got %v, want %d", body["start_date"], expectedMillis)
+		}
+		if body["due_date"] == nil {
+			t.Error("due_date가 있어야 함")
+		}
+		if int64(body["due_date"].(float64)) != expectedMillis {
+			t.Errorf("due_date 값 불일치: got %v, want %d", body["due_date"], expectedMillis)
+		}
+
+		// status 필드가 없어야 함
+		if body["status"] != nil {
+			t.Error("status 필드가 없어야 함 (날짜만 설정)")
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"id": "task123"})
+	}))
+	defer server.Close()
+
+	config := Config{APIToken: "test-token", ListID: "123456"}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	startDate := testTime
+	dueDate := testTime
+	err := client.UpdateTaskDates(context.Background(), "task123", &startDate, &dueDate)
+
+	if err != nil {
+		t.Fatalf("날짜 설정 실패: %v", err)
+	}
+}
+
+// TestClickUpClient_UpdateTaskDates_PartialDates는 일부 날짜만 설정하는 경우를 테스트합니다.
+func TestClickUpClient_UpdateTaskDates_PartialDates(t *testing.T) {
+	testTime := time.Date(2026, 1, 28, 15, 30, 0, 0, time.UTC)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+
+		// start_date만 있어야 함
+		if body["start_date"] == nil {
+			t.Error("start_date가 있어야 함")
+		}
+		if body["due_date"] != nil {
+			t.Error("due_date가 없어야 함 (nil 전달)")
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"id": "task123"})
+	}))
+	defer server.Close()
+
+	config := Config{APIToken: "test-token", ListID: "123456"}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	startDate := testTime
+	err := client.UpdateTaskDates(context.Background(), "task123", &startDate, nil)
+
+	if err != nil {
+		t.Fatalf("날짜 설정 실패: %v", err)
+	}
+}
+
+// TestClickUpClient_UpdateTaskDates_Error는 날짜 설정 에러를 테스트합니다.
+func TestClickUpClient_UpdateTaskDates_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"err": "Invalid date"}`))
+	}))
+	defer server.Close()
+
+	config := Config{APIToken: "test-token", ListID: "123456"}
+	client := NewClickUpClient(config)
+	client.baseURL = server.URL
+
+	now := time.Now()
+	err := client.UpdateTaskDates(context.Background(), "task123", &now, nil)
+
+	if err == nil {
+		t.Error("에러가 발생해야 합니다")
+	}
+}

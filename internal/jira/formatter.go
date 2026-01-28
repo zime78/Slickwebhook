@@ -9,7 +9,7 @@ import (
 // ReformatDescription은 Jira 본문을 재구성합니다.
 // [현 결과] → [오류내용], [기대 결과] → [수정요청] 으로 변환
 // 각 섹션에 번호를 매기고 빈 줄을 정리합니다.
-func ReformatDescription(description string, attachmentURLs []string) string {
+func ReformatDescription(description string, attachments []Attachment) string {
 	if description == "" {
 		return ""
 	}
@@ -69,9 +69,13 @@ func ReformatDescription(description string, attachmentURLs []string) string {
 	if errorContent != "" {
 		result.WriteString("[오류내용]\n")
 		result.WriteString(formatAsNumberedList(errorContent))
-		// 첨부 이미지 추가
-		if len(attachmentURLs) > 0 {
-			result.WriteString(fmt.Sprintf("%d. 이미지 첨부\n", countNonEmptyLines(errorContent)+1))
+		// 첨부파일 표시 (파일명 + 타입 구분)
+		if len(attachments) > 0 {
+			lineNum := countNonEmptyLines(errorContent) + 1
+			for _, att := range attachments {
+				result.WriteString(fmt.Sprintf("%d. %s\n", lineNum, formatAttachmentLabel(att)))
+				lineNum++
+			}
 		}
 		result.WriteString("\n")
 	}
@@ -84,9 +88,13 @@ func ReformatDescription(description string, attachmentURLs []string) string {
 	if fixContent != "" {
 		result.WriteString("[수정요청]\n")
 		result.WriteString(formatAsNumberedList(fixContent))
-		// 첨부 이미지 추가
-		if len(attachmentURLs) > 1 {
-			result.WriteString(fmt.Sprintf("%d. 이미지 첨부\n", countNonEmptyLines(fixContent)+1))
+		// 첨부파일 표시 (2개 이상일 때 두 번째부터 표시)
+		if len(attachments) > 1 {
+			lineNum := countNonEmptyLines(fixContent) + 1
+			for _, att := range attachments[1:] {
+				result.WriteString(fmt.Sprintf("%d. %s\n", lineNum, formatAttachmentLabel(att)))
+				lineNum++
+			}
 		}
 		result.WriteString("\n")
 	}
@@ -198,6 +206,18 @@ func normalizeSection(section string) string {
 	section = strings.ReplaceAll(section, " ", "")
 	section = strings.Trim(section, "[]")
 	return section
+}
+
+// formatAttachmentLabel은 첨부파일의 표시 라벨을 생성합니다.
+// 예: "이미지: screenshot.png", "동영상: recording.mp4"
+func formatAttachmentLabel(att Attachment) string {
+	prefix := "첨부"
+	if strings.HasPrefix(att.MimeType, "image/") {
+		prefix = "이미지"
+	} else if strings.HasPrefix(att.MimeType, "video/") {
+		prefix = "동영상"
+	}
+	return fmt.Sprintf("%s: %s", prefix, att.Filename)
 }
 
 // FilterMediaAttachments는 이미지와 동영상 첨부파일을 필터링합니다.

@@ -53,6 +53,10 @@ func (m *MockClickUpClient) MoveTaskToList(ctx context.Context, taskID string, l
 	return nil // Mock: 항상 성공
 }
 
+func (m *MockClickUpClient) UpdateTaskDates(ctx context.Context, taskID string, startDate, dueDate *time.Time) error {
+	return nil // Mock: 항상 성공
+}
+
 // TestForwardHandler_Handle는 ClickUp 전송을 테스트합니다.
 func TestForwardHandler_Handle(t *testing.T) {
 	var buf bytes.Buffer

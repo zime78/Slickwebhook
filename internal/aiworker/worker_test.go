@@ -11,18 +11,26 @@ import (
 
 // MockClickUpClient는 테스트용 ClickUp 클라이언트입니다.
 type MockClickUpClient struct {
-	Tasks           []*clickup.Task
-	StatusUpdates   []StatusUpdate
-	MovedTasks      []MoveTask
-	GetTasksCalled  bool
-	UpdateCalled    bool
-	MoveTaskCalled  bool
-	mu              sync.Mutex
+	Tasks              []*clickup.Task
+	StatusUpdates      []StatusUpdate
+	DateUpdates        []DateUpdate
+	MovedTasks         []MoveTask
+	GetTasksCalled     bool
+	UpdateCalled       bool
+	UpdateDatesCalled  bool
+	MoveTaskCalled     bool
+	mu                 sync.Mutex
 }
 
 type StatusUpdate struct {
 	TaskID string
 	Status string
+}
+
+type DateUpdate struct {
+	TaskID    string
+	StartDate *time.Time
+	DueDate   *time.Time
 }
 
 type MoveTask struct {
@@ -61,6 +69,14 @@ func (m *MockClickUpClient) MoveTaskToList(ctx context.Context, taskID, listID s
 	defer m.mu.Unlock()
 	m.MoveTaskCalled = true
 	m.MovedTasks = append(m.MovedTasks, MoveTask{TaskID: taskID, ListID: listID})
+	return nil
+}
+
+func (m *MockClickUpClient) UpdateTaskDates(ctx context.Context, taskID string, startDate, dueDate *time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.UpdateDatesCalled = true
+	m.DateUpdates = append(m.DateUpdates, DateUpdate{TaskID: taskID, StartDate: startDate, DueDate: dueDate})
 	return nil
 }
 
