@@ -8,6 +8,7 @@ type TerminalType string
 const (
 	TerminalTypeDefault TerminalType = "terminal" // macOS 기본 터미널
 	TerminalTypeWarp    TerminalType = "warp"     // Warp 터미널
+	TerminalTypeITerm2  TerminalType = "iterm2"   // iTerm2 터미널
 )
 
 // AI 모델 타입 상수 re-export
@@ -32,9 +33,11 @@ type Config struct {
 
 // WorkerConfig는 개별 Worker 설정입니다.
 type WorkerConfig struct {
-	ID      string // Worker ID (예: "AI_01")
-	ListID  string // ClickUp 리스트 ID
-	SrcPath string // Claude Code 실행 경로
+	ID           string              // Worker ID (예: "AI_01")
+	ListID       string              // ClickUp 리스트 ID
+	SrcPath      string              // Claude Code 실행 경로
+	TerminalType TerminalType        // 터미널 종류 (개별 설정, 없으면 전역 설정 사용)
+	AIModelType  aimodel.AIModelType // AI 모델 종류 (개별 설정, 없으면 전역 설정 사용)
 }
 
 // DefaultConfig는 기본 설정을 반환합니다.
@@ -50,12 +53,25 @@ func DefaultConfig() Config {
 	}
 }
 
-// AddWorker는 Worker 설정을 추가합니다.
+// AddWorker는 Worker 설정을 추가합니다 (전역 설정 사용).
 func (c *Config) AddWorker(id, listID, srcPath string) {
 	c.Workers = append(c.Workers, WorkerConfig{
-		ID:      id,
-		ListID:  listID,
-		SrcPath: srcPath,
+		ID:           id,
+		ListID:       listID,
+		SrcPath:      srcPath,
+		TerminalType: c.TerminalType, // 전역 설정 사용
+		AIModelType:  c.AIModelType,  // 전역 설정 사용
+	})
+}
+
+// AddWorkerWithConfig는 개별 설정으로 Worker를 추가합니다.
+func (c *Config) AddWorkerWithConfig(id, listID, srcPath string, terminalType TerminalType, aiModelType aimodel.AIModelType) {
+	c.Workers = append(c.Workers, WorkerConfig{
+		ID:           id,
+		ListID:       listID,
+		SrcPath:      srcPath,
+		TerminalType: terminalType,
+		AIModelType:  aiModelType,
 	})
 }
 

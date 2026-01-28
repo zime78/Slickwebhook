@@ -27,6 +27,8 @@ func GetTerminalHandler(terminalType TerminalType) TerminalHandler {
 	switch terminalType {
 	case TerminalTypeWarp:
 		return &WarpTerminalHandler{}
+	case TerminalTypeITerm2:
+		return &ITermTerminalHandler{}
 	default:
 		return &DefaultTerminalHandler{}
 	}
@@ -114,5 +116,56 @@ func (h *WarpTerminalHandler) BuildTerminateScript(workerID string) string {
 func (h *WarpTerminalHandler) Terminate(workerID string) error {
 	// Warp는 AppleScript에서 특정 창 식별이 불가능하여 창 닫기 생략
 	// 사용자가 수동으로 창을 닫거나, Claude 완료 후 자동 종료됨
+	return nil
+}
+
+// ITermTerminalHandler는 iTerm2 터미널 핸들러입니다.
+type ITermTerminalHandler struct{}
+
+func (h *ITermTerminalHandler) GetType() TerminalType {
+	return TerminalTypeITerm2
+}
+
+func (h *ITermTerminalHandler) BuildInvokeScript(workDir, promptFilePath, workerID string) string {
+	// iTerm2에서 새 탭을 열고 세션 이름 설정 후 Claude 실행
+	// iTerm2는 AppleScript를 완벽 지원하여 세션 이름으로 특정 탭 타겟팅 가능
+	return fmt.Sprintf(`
+tell application "iTerm"
+	activate
+	tell current window
+		create tab with default profile
+		tell current session
+			set name to "%s"
+			write text "cd '%s' && cat '%s' | claude --permission-mode plan && rm -f '%s'"
+		end tell
+	end tell
+end tell
+`, workerID, workDir, promptFilePath, promptFilePath)
+}
+
+func (h *ITermTerminalHandler) BuildTerminateScript(workerID string) string {
+	// iTerm2: 세션 이름으로 특정 세션 찾아 종료
+	return fmt.Sprintf(`
+tell application "iTerm"
+	repeat with w in windows
+		repeat with t in tabs of w
+			repeat with s in sessions of t
+				if name of s is "%s" then
+					tell s to close
+					return
+				end if
+			end repeat
+		end repeat
+	end repeat
+end tell
+`, workerID)
+}
+
+func (h *ITermTerminalHandler) Terminate(workerID string) error {
+	script := h.BuildTerminateScript(workerID)
+	cmd := exec.Command("osascript", "-e", script)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("iTerm2 종료 실패: %w", err)
+	}
 	return nil
 }

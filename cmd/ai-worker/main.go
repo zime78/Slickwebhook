@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/zime/slickwebhook/internal/aiworker"
+	"github.com/zime/slickwebhook/internal/aiworker/aimodel"
 	"github.com/zime/slickwebhook/internal/claudehook"
 	"github.com/zime/slickwebhook/internal/cli"
 	"github.com/zime/slickwebhook/internal/clickup"
@@ -93,19 +94,23 @@ func main() {
 	// issueformatter 생성
 	formatter := issueformatter.NewIssueFormatter(issueformatter.DefaultConfig())
 
-	// AI 모델 Invoker 생성 (Hook 서버 포트, 터미널 타입, AI 모델 타입 설정)
-	invoker := aiworker.NewDefaultInvokerWithModel(workerConfig.HookServerPort, workerConfig.TerminalType, workerConfig.AIModelType)
-
 	// Manager 생성 및 의존성 주입
 	manager := aiworker.NewManager(workerConfig)
 	manager.SetLogger(logger)
 	manager.SetClickUpClient(clickupClient)
-	manager.SetInvoker(invoker)
 
-	// 각 Worker에 formatter 및 터미널 타입 설정
+	// 각 Worker에 개별 Invoker 및 formatter 설정
 	for _, worker := range manager.GetWorkers() {
+		wConfig := worker.GetConfig()
+		// Worker별 개별 Invoker 생성 (터미널/AI 모델 설정 적용)
+		workerInvoker := aiworker.NewDefaultInvokerWithModel(
+			workerConfig.HookServerPort,
+			wConfig.TerminalType,
+			wConfig.AIModelType,
+		)
+		worker.SetInvoker(workerInvoker)
 		worker.SetFormatter(formatter)
-		worker.SetTerminalType(workerConfig.TerminalType)
+		worker.SetTerminalType(wConfig.TerminalType)
 	}
 
 	// Claude Code Hook 설정
@@ -312,6 +317,12 @@ func main() {
 func loadWorkerConfig(logger *log.Logger) aiworker.Config {
 	config := aiworker.DefaultConfig()
 
+	// 전역 터미널/AI 모델 기본값 먼저 설정
+	globalTerminal := parseTerminalType(os.Getenv("TERMINAL_TYPE"))
+	globalModel := parseAIModelType(os.Getenv("AI_MODEL_TYPE"))
+	config.TerminalType = globalTerminal
+	config.AIModelType = globalModel
+
 	// AI Worker 설정 로드 (AI_01 ~ AI_04)
 	for i := 1; i <= 4; i++ {
 		prefix := "AI_0" + strconv.Itoa(i)
@@ -319,8 +330,23 @@ func loadWorkerConfig(logger *log.Logger) aiworker.Config {
 		srcPath := os.Getenv(prefix + "_SRC_PATH")
 
 		if listID != "" && srcPath != "" {
-			config.AddWorker(prefix, listID, srcPath)
-			logger.Printf("[AI Worker] Worker 설정 로드: %s (리스트: %s, 경로: %s)", prefix, listID, srcPath)
+			// Worker별 개별 설정 (없으면 전역 설정 사용)
+			workerTerminalStr := os.Getenv(prefix + "_TERMINAL_TYPE")
+			workerModelStr := os.Getenv(prefix + "_AI_MODEL_TYPE")
+
+			workerTerminal := globalTerminal
+			if workerTerminalStr != "" {
+				workerTerminal = parseTerminalType(workerTerminalStr)
+			}
+
+			workerModel := globalModel
+			if workerModelStr != "" {
+				workerModel = parseAIModelType(workerModelStr)
+			}
+
+			config.AddWorkerWithConfig(prefix, listID, srcPath, workerTerminal, workerModel)
+			logger.Printf("[AI Worker] Worker 설정: %s (터미널: %s, AI: %s, 경로: %s)",
+				prefix, workerTerminal, workerModel, srcPath)
 		}
 	}
 
@@ -371,31 +397,34 @@ func loadWorkerConfig(logger *log.Logger) aiworker.Config {
 	// Slack 채널
 	config.SlackChannel = os.Getenv("SLACK_NOTIFY_CHANNEL")
 
-	// 터미널 타입 설정 (terminal/warp, 기본: terminal)
-	terminalType := os.Getenv("TERMINAL_TYPE")
-	if terminalType == "warp" {
-		config.TerminalType = aiworker.TerminalTypeWarp
-		logger.Printf("[AI Worker] 터미널 타입 설정: Warp")
-	} else {
-		config.TerminalType = aiworker.TerminalTypeDefault
-		logger.Printf("[AI Worker] 터미널 타입 설정: Terminal")
-	}
-
-	// AI 모델 타입 설정 (claude/opencode/ampcode, 기본: claude)
-	aiModelType := os.Getenv("AI_MODEL_TYPE")
-	switch aiModelType {
-	case "opencode":
-		config.AIModelType = aiworker.AIModelOpenCode
-		logger.Printf("[AI Worker] AI 모델 설정: OpenCode")
-	case "ampcode":
-		config.AIModelType = aiworker.AIModelAmpcode
-		logger.Printf("[AI Worker] AI 모델 설정: Ampcode")
-	default:
-		config.AIModelType = aiworker.AIModelClaude
-		logger.Printf("[AI Worker] AI 모델 설정: Claude")
-	}
+	// 전역 설정 로깅
+	logger.Printf("[AI Worker] 전역 설정 - 터미널: %s, AI 모델: %s", config.TerminalType, config.AIModelType)
 
 	return config
+}
+
+// parseTerminalType은 문자열을 TerminalType으로 변환합니다.
+func parseTerminalType(s string) aiworker.TerminalType {
+	switch s {
+	case "warp":
+		return aiworker.TerminalTypeWarp
+	case "iterm2":
+		return aiworker.TerminalTypeITerm2
+	default:
+		return aiworker.TerminalTypeDefault
+	}
+}
+
+// parseAIModelType은 문자열을 AIModelType으로 변환합니다.
+func parseAIModelType(s string) aimodel.AIModelType {
+	switch s {
+	case "opencode":
+		return aimodel.AIModelOpenCode
+	case "ampcode":
+		return aimodel.AIModelAmpcode
+	default:
+		return aimodel.AIModelClaude
+	}
 }
 
 // WebhookProcessor는 webhook.Processor 인터페이스를 구현합니다.

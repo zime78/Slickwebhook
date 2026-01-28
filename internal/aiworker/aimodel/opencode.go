@@ -32,6 +32,9 @@ func (h *OpenCodeHandler) BuildInvokeScript(workDir, promptFilePath, workerID st
 	if h.terminalType == string(TerminalTypeWarp) {
 		return h.buildWarpScript(workDir, promptFilePath, workerID)
 	}
+	if h.terminalType == string(TerminalTypeITerm2) {
+		return h.buildITermScript(workDir, promptFilePath, workerID)
+	}
 	return h.buildTerminalScript(workDir, promptFilePath, workerID)
 }
 
@@ -66,9 +69,29 @@ end tell
 `, workDir, workDir, promptFilePath, promptFilePath)
 }
 
+func (h *OpenCodeHandler) buildITermScript(workDir, promptFilePath, workerID string) string {
+	// iTerm2에서 새 탭을 열고 세션 이름 설정 후 OpenCode 실행
+	// iTerm2는 AppleScript를 완벽 지원하여 세션 이름으로 특정 탭 타겟팅 가능
+	return fmt.Sprintf(`
+tell application "iTerm"
+	activate
+	tell current window
+		create tab with default profile
+		tell current session
+			set name to "%s"
+			write text "cd '%s' && opencode --prompt \"$(cat '%s')\" && rm -f '%s'"
+		end tell
+	end tell
+end tell
+`, workerID, workDir, promptFilePath, promptFilePath)
+}
+
 func (h *OpenCodeHandler) BuildTerminateScript(workerID string) string {
 	if h.terminalType == string(TerminalTypeWarp) {
 		return ""
+	}
+	if h.terminalType == string(TerminalTypeITerm2) {
+		return h.buildITermTerminateScript(workerID)
 	}
 	return fmt.Sprintf(`
 tell application "Terminal"
@@ -83,6 +106,24 @@ tell application "Terminal"
 				return
 			end if
 		end try
+	end repeat
+end tell
+`, workerID)
+}
+
+func (h *OpenCodeHandler) buildITermTerminateScript(workerID string) string {
+	// iTerm2: 세션 이름으로 특정 세션 찾아 종료
+	return fmt.Sprintf(`
+tell application "iTerm"
+	repeat with w in windows
+		repeat with t in tabs of w
+			repeat with s in sessions of t
+				if name of s is "%s" then
+					tell s to close
+					return
+				end if
+			end repeat
+		end repeat
 	end repeat
 end tell
 `, workerID)

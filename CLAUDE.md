@@ -139,17 +139,28 @@ internal/
 
 ```ini
 # AI 리스트 설정 (4개 병렬 Worker)
+# Worker별로 터미널/AI 모델 개별 설정 가능
+
+# Worker 1: Claude + iTerm2
 AI_01_LIST_ID=901414115524
 AI_01_SRC_PATH=/path/to/project1
+AI_01_TERMINAL_TYPE=iterm2     # 개별 터미널 설정 (선택)
+AI_01_AI_MODEL_TYPE=claude     # 개별 AI 모델 설정 (선택)
 
+# Worker 2: OpenCode + Warp
 AI_02_LIST_ID=901414115581
 AI_02_SRC_PATH=/path/to/project2
+AI_02_TERMINAL_TYPE=warp
+AI_02_AI_MODEL_TYPE=opencode
 
+# Worker 3: 전역 설정 사용 (개별 설정 생략 시)
 AI_03_LIST_ID=901414115582
 AI_03_SRC_PATH=/path/to/project3
 
+# Worker 4: Ampcode + Terminal
 AI_04_LIST_ID=901414115583
 AI_04_SRC_PATH=/path/to/project4
+AI_04_AI_MODEL_TYPE=ampcode
 
 # 서버 포트
 WEBHOOK_PORT=8080              # ClickUp Webhook 수신
@@ -162,11 +173,17 @@ AI_STATUS_COMPLETED=개발완료
 # 완료된 태스크 이동 목표 리스트
 AI_COMPLETED_LIST_ID=901413896178
 
-# 터미널 타입 (terminal 또는 warp, 기본: terminal)
-TERMINAL_TYPE=warp
+# 전역 터미널 타입 (Worker별 설정 없을 때 사용)
+# - terminal: macOS 기본 Terminal.app
+# - warp: Warp 터미널 (AppleScript 창 타겟팅 미지원)
+# - iterm2: iTerm2 (AppleScript 완벽 지원, 세션 이름으로 타겟팅 가능)
+TERMINAL_TYPE=terminal
 
-# AI 모델 타입 (claude, opencode, ampcode, 기본: claude)
-AI_MODEL_TYPE=opencode
+# 전역 AI 모델 타입 (Worker별 설정 없을 때 사용)
+# - claude: Claude Code (기본값)
+# - opencode: OpenCode (oh-my-opencode)
+# - ampcode: Ampcode (Sourcegraph)
+AI_MODEL_TYPE=claude
 ```
 
 ### 3. AI 모델별 추가 설정

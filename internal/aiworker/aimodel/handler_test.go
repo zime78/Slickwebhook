@@ -200,3 +200,133 @@ func TestAIModelHandler_Interface(t *testing.T) {
 		})
 	}
 }
+
+// TestTerminalType은 터미널 타입 상수를 테스트합니다.
+func TestTerminalType(t *testing.T) {
+	tests := []struct {
+		name     string
+		terminal TerminalType
+		expected string
+	}{
+		{"Terminal", TerminalTypeDefault, "terminal"},
+		{"Warp", TerminalTypeWarp, "warp"},
+		{"iTerm2", TerminalTypeITerm2, "iterm2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if string(tt.terminal) != tt.expected {
+				t.Errorf("TerminalType %s = %s, want %s", tt.name, tt.terminal, tt.expected)
+			}
+		})
+	}
+}
+
+// TestClaudeHandler_iTerm2는 Claude 핸들러의 iTerm2 스크립트를 테스트합니다.
+func TestClaudeHandler_iTerm2(t *testing.T) {
+	handler := NewClaudeHandler(8081, "iterm2")
+
+	t.Run("BuildInvokeScript iTerm2", func(t *testing.T) {
+		script := handler.BuildInvokeScript("/test/dir", "/tmp/prompt.txt", "AI_01")
+
+		// iTerm 명령이 포함되어야 함
+		if !strings.Contains(script, "iTerm") {
+			t.Error("스크립트에 iTerm이 포함되어야 함")
+		}
+
+		// claude 명령이 포함되어야 함
+		if !strings.Contains(script, "claude") {
+			t.Error("스크립트에 claude가 포함되어야 함")
+		}
+
+		// Worker ID (세션 이름)가 포함되어야 함
+		if !strings.Contains(script, "AI_01") {
+			t.Error("스크립트에 Worker ID가 포함되어야 함")
+		}
+
+		// create tab이 포함되어야 함
+		if !strings.Contains(script, "create tab") {
+			t.Error("스크립트에 'create tab'이 포함되어야 함")
+		}
+	})
+
+	t.Run("BuildTerminateScript iTerm2", func(t *testing.T) {
+		script := handler.BuildTerminateScript("AI_01")
+
+		// iTerm 명령이 포함되어야 함
+		if !strings.Contains(script, "iTerm") {
+			t.Error("스크립트에 iTerm이 포함되어야 함")
+		}
+
+		// 세션 이름으로 찾는 로직이 포함되어야 함
+		if !strings.Contains(script, "name of s is") {
+			t.Error("스크립트에 세션 이름 검색 로직이 포함되어야 함")
+		}
+	})
+}
+
+// TestOpenCodeHandler_iTerm2는 OpenCode 핸들러의 iTerm2 스크립트를 테스트합니다.
+func TestOpenCodeHandler_iTerm2(t *testing.T) {
+	handler := NewOpenCodeHandler(8081, "iterm2")
+
+	t.Run("BuildInvokeScript iTerm2", func(t *testing.T) {
+		script := handler.BuildInvokeScript("/test/dir", "/tmp/prompt.txt", "AI_01")
+
+		// iTerm 명령이 포함되어야 함
+		if !strings.Contains(script, "iTerm") {
+			t.Error("스크립트에 iTerm이 포함되어야 함")
+		}
+
+		// opencode 명령이 포함되어야 함
+		if !strings.Contains(script, "opencode") {
+			t.Error("스크립트에 opencode가 포함되어야 함")
+		}
+
+		// Worker ID (세션 이름)가 포함되어야 함
+		if !strings.Contains(script, "AI_01") {
+			t.Error("스크립트에 Worker ID가 포함되어야 함")
+		}
+	})
+
+	t.Run("BuildTerminateScript iTerm2", func(t *testing.T) {
+		script := handler.BuildTerminateScript("AI_01")
+
+		// iTerm 명령이 포함되어야 함
+		if !strings.Contains(script, "iTerm") {
+			t.Error("스크립트에 iTerm이 포함되어야 함")
+		}
+	})
+}
+
+// TestAmpcodeHandler_iTerm2는 Ampcode 핸들러의 iTerm2 스크립트를 테스트합니다.
+func TestAmpcodeHandler_iTerm2(t *testing.T) {
+	handler := NewAmpcodeHandler(8081, "iterm2")
+
+	t.Run("BuildInvokeScript iTerm2", func(t *testing.T) {
+		script := handler.BuildInvokeScript("/test/dir", "/tmp/prompt.txt", "AI_01")
+
+		// iTerm 명령이 포함되어야 함
+		if !strings.Contains(script, "iTerm") {
+			t.Error("스크립트에 iTerm이 포함되어야 함")
+		}
+
+		// amp 명령이 포함되어야 함
+		if !strings.Contains(script, "amp") {
+			t.Error("스크립트에 amp가 포함되어야 함")
+		}
+
+		// Worker ID (세션 이름)가 포함되어야 함
+		if !strings.Contains(script, "AI_01") {
+			t.Error("스크립트에 Worker ID가 포함되어야 함")
+		}
+	})
+
+	t.Run("BuildTerminateScript iTerm2", func(t *testing.T) {
+		script := handler.BuildTerminateScript("AI_01")
+
+		// iTerm 명령이 포함되어야 함
+		if !strings.Contains(script, "iTerm") {
+			t.Error("스크립트에 iTerm이 포함되어야 함")
+		}
+	})
+}

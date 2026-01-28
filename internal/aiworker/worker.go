@@ -64,6 +64,11 @@ func (w *Worker) SetTerminalType(terminalType TerminalType) {
 	w.terminalType = terminalType
 }
 
+// SetInvoker는 AI 모델 Invoker를 설정합니다.
+func (w *Worker) SetInvoker(invoker ClaudeInvoker) {
+	w.invoker = invoker
+}
+
 // SetFormatter는 이슈 포맷터를 설정합니다.
 func (w *Worker) SetFormatter(formatter issueformatter.Formatter) {
 	w.formatter = formatter

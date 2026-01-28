@@ -16,6 +16,7 @@ type TerminalType string
 const (
 	TerminalTypeDefault TerminalType = "terminal" // macOS 기본 터미널
 	TerminalTypeWarp    TerminalType = "warp"     // Warp 터미널
+	TerminalTypeITerm2  TerminalType = "iterm2"   // iTerm2 터미널
 )
 
 // AIModelHandler는 AI 모델별 작업을 처리하는 인터페이스입니다.
