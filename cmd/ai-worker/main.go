@@ -181,6 +181,10 @@ func main() {
 			// API 에러 알림
 			sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, "❌ API 에러", "Claude API 호출 중 에러가 발생했습니다.")
 
+		case StopReasonCompleted:
+			// 정상 완료 - 별도 알림 없음 (TaskComplete에서 처리)
+			logger.Printf("[AI Worker] 작업 정상 완료 감지")
+
 		case StopReasonUnknown:
 			// 알 수 없는 Stop - 로그만 남김
 			logger.Printf("[AI Worker] 알 수 없는 Stop 원인 (알림 생략)")
@@ -557,6 +561,7 @@ const (
 	StopReasonRateLimit       StopReason = "rate_limit"
 	StopReasonContextExceeded StopReason = "context_exceeded"
 	StopReasonAPIError        StopReason = "api_error"
+	StopReasonCompleted       StopReason = "completed"
 	StopReasonUnknown         StopReason = "unknown"
 )
 
@@ -587,7 +592,14 @@ func analyzeStopReason(transcriptPath string, logger *log.Logger) StopReason {
 	n, _ := file.Read(buf)
 	content := strings.ToLower(string(buf[:n]))
 
-	// Plan 완료 확인 (가장 먼저 체크)
+	// 정상 완료 확인 (가장 먼저 체크)
+	// stop_hook_summary가 있고 stopReason이 빈 문자열이면 정상 완료
+	if strings.Contains(content, `"subtype":"stop_hook_summary"`) &&
+		strings.Contains(content, `"stopreason":""`) {
+		return StopReasonCompleted
+	}
+
+	// Plan 완료 확인
 	planReadyKeywords := []string{"would you like to proceed", "계획을 검토", "proceed?"}
 	for _, keyword := range planReadyKeywords {
 		if strings.Contains(content, keyword) {
@@ -611,8 +623,16 @@ func analyzeStopReason(transcriptPath string, logger *log.Logger) StopReason {
 		}
 	}
 
-	// API 에러 확인
-	errorKeywords := []string{"error", "failed", "exception", "api error"}
+	// API 에러 확인 (구체적인 Claude API 에러 패턴만 매칭)
+	// "is_error":false 같은 JSON 필드명에서 오탐 방지
+	errorKeywords := []string{
+		`"type":"overloaded_error"`,   // API 과부하
+		`"type":"rate_limit_error"`,   // Rate limit 에러
+		`"type":"api_error"`,          // 일반 API 에러
+		"api request failed",          // API 요청 실패
+		"connection refused",          // 연결 거부
+		"anthropic api",               // Anthropic API 관련 에러 메시지
+	}
 	for _, keyword := range errorKeywords {
 		if strings.Contains(content, keyword) {
 			return StopReasonAPIError

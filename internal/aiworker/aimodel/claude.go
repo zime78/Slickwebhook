@@ -66,17 +66,95 @@ end tell
 }
 
 func (h *ClaudeHandler) buildITermScript(workDir, promptFilePath, workerID string) string {
-	// iTerm2에서 기존 세션 재사용 또는 분할하여 새 세션 생성
-	// profile name으로 Worker ID를 설정하여 완전 고정된 식별자로 검색
+	// iTerm2에서 기존 세션 재사용 또는 2x2 격자로 새 세션 생성
+	// session name으로 Worker ID를 설정하여 검색
+	// AI_01, AI_02: split vertically (좌우)
+	// AI_03, AI_04: split horizontally (상하, 위쪽 세션에서 분할)
+
+	// Worker 번호 추출 (AI_01 → 1, AI_02 → 2, ...)
+	workerNum := 1
+	if len(workerID) >= 5 {
+		if n := workerID[len(workerID)-1]; n >= '1' && n <= '4' {
+			workerNum = int(n - '0')
+		}
+	}
+
+	// 분할 방향 및 대상 세션 결정
+	splitDirection := "vertically"
+	targetSession := ""
+	if workerNum >= 3 {
+		splitDirection = "horizontally"
+		// AI_03 → AI_01 아래에, AI_04 → AI_02 아래에
+		targetSession = workerID[:len(workerID)-1] + string('0'+byte(workerNum-2))
+	}
+
+	// AI_03, AI_04는 위쪽 세션을 찾아서 분할
+	if targetSession != "" {
+		return fmt.Sprintf(`
+tell application "iTerm"
+	activate
+
+	-- 기존 세션 찾기 (session name으로 Worker ID 검색)
+	repeat with w in windows
+		repeat with t in tabs of w
+			repeat with s in sessions of t
+				if name of s is "%s" then
+					tell s
+						write text "cd '%s' && cat '%s' | claude --permission-mode plan && rm -f '%s'"
+					end tell
+					return
+				end if
+			end repeat
+		end repeat
+	end repeat
+
+	-- 위쪽 세션(%s)을 찾아서 아래로 분할
+	repeat with w in windows
+		repeat with t in tabs of w
+			repeat with s in sessions of t
+				if name of s is "%s" then
+					tell s
+						set newSession to (split %s with default profile)
+						tell newSession
+							set name to "%s"
+							write text "echo -ne '\\033]0;%s\\007' && cd '%s' && cat '%s' | claude --permission-mode plan && rm -f '%s'"
+						end tell
+					end tell
+					return
+				end if
+			end repeat
+		end repeat
+	end repeat
+
+	-- 대상 세션이 없으면 현재 세션에서 분할
+	if (count of windows) = 0 then
+		create window with default profile
+	end if
+	tell current window
+		tell current session
+			set newSession to (split %s with default profile)
+			tell newSession
+				set name to "%s"
+				write text "echo -ne '\\033]0;%s\\007' && cd '%s' && cat '%s' | claude --permission-mode plan && rm -f '%s'"
+			end tell
+		end tell
+	end tell
+end tell
+`, workerID, workDir, promptFilePath, promptFilePath,
+			targetSession, targetSession, splitDirection, workerID, workerID, workDir, promptFilePath, promptFilePath,
+			splitDirection, workerID, workerID, workDir, promptFilePath, promptFilePath)
+	}
+
+	// AI_01, AI_02: 기본 동작 (좌우 분할)
 	return fmt.Sprintf(`
 tell application "iTerm"
 	activate
 
-	-- 기존 세션 찾기 (profile name으로 Worker ID 검색)
+	-- 기존 세션 찾기 (session name으로 Worker ID 검색)
 	repeat with w in windows
 		repeat with t in tabs of w
 			repeat with s in sessions of t
-				if profile name of s is "%s" then
+				if name of s is "%s" then
 					tell s
 						write text "cd '%s' && cat '%s' | claude --permission-mode plan && rm -f '%s'"
 					end tell
@@ -91,10 +169,10 @@ tell application "iTerm"
 		create window with default profile
 	end if
 
-	-- 세션 없으면 분할하여 새로 생성
+	-- 세션 없으면 분할하여 새로 생성 (좌우 분할)
 	tell current window
 		tell current session
-			set newSession to (split vertically with default profile)
+			set newSession to (split %s with default profile)
 			tell newSession
 				set name to "%s"
 				write text "echo -ne '\\033]0;%s\\007' && cd '%s' && cat '%s' | claude --permission-mode plan && rm -f '%s'"
@@ -102,7 +180,7 @@ tell application "iTerm"
 		end tell
 	end tell
 end tell
-`, workerID, workDir, promptFilePath, promptFilePath, workerID, workerID, workDir, promptFilePath, promptFilePath)
+`, workerID, workDir, promptFilePath, promptFilePath, splitDirection, workerID, workerID, workDir, promptFilePath, promptFilePath)
 }
 
 func (h *ClaudeHandler) BuildTerminateScript(workerID string) string {
@@ -133,13 +211,13 @@ end tell
 }
 
 func (h *ClaudeHandler) buildITermTerminateScript(workerID string) string {
-	// iTerm2: profile name으로 Worker ID가 설정된 세션 찾아 종료
+	// iTerm2: session name으로 Worker ID가 설정된 세션 찾아 종료
 	return fmt.Sprintf(`
 tell application "iTerm"
 	repeat with w in windows
 		repeat with t in tabs of w
 			repeat with s in sessions of t
-				if profile name of s is "%s" then
+				if name of s is "%s" then
 					tell s to close
 					return
 				end if

@@ -113,10 +113,11 @@ func (m *Manager) MergeSettings(settingsPath string) error {
 		hooks = make(map[string]interface{})
 	}
 
-	// Stop hook 설정 추가/업데이트
+	// Stop, SessionEnd hook 설정 추가/업데이트
 	newConfig := m.GenerateHookConfig()
 	newHooks := newConfig["hooks"].(map[string]interface{})
 	hooks["Stop"] = newHooks["Stop"]
+	hooks["SessionEnd"] = newHooks["SessionEnd"]
 
 	existingConfig["hooks"] = hooks
 
