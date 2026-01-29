@@ -54,9 +54,9 @@ func main() {
 
 		logWriter = &lumberjack.Logger{
 			Filename:   filepath.Join(logDir, "aiworker.log"),
-			MaxSize:    100, // MB
-			MaxBackups: 5,   // 파일 개수
-			MaxAge:     30,  // 일
+			MaxSize:    10, // MB
+			MaxBackups: 5,  // 파일 개수
+			MaxAge:     30, // 일
 			Compress:   true,
 		}
 	}
