@@ -70,20 +70,43 @@ end tell
 }
 
 func (h *OpenCodeHandler) buildITermScript(workDir, promptFilePath, workerID string) string {
-	// iTerm2에서 새 탭을 열고 세션 이름 설정 후 OpenCode 실행
-	// iTerm2는 AppleScript를 완벽 지원하여 세션 이름으로 특정 탭 타겟팅 가능
+	// iTerm2에서 기존 세션 재사용 또는 분할하여 새 세션 생성
+	// profile name으로 Worker ID를 설정하여 완전 고정된 식별자로 검색
 	return fmt.Sprintf(`
 tell application "iTerm"
 	activate
+
+	-- 기존 세션 찾기 (profile name으로 Worker ID 검색)
+	repeat with w in windows
+		repeat with t in tabs of w
+			repeat with s in sessions of t
+				if profile name of s is "%s" then
+					tell s
+						write text "cd '%s' && opencode --prompt \"$(cat '%s')\" && rm -f '%s'"
+					end tell
+					return
+				end if
+			end repeat
+		end repeat
+	end repeat
+
+	-- 창이 없으면 새 창 생성
+	if (count of windows) = 0 then
+		create window with default profile
+	end if
+
+	-- 세션 없으면 분할하여 새로 생성
 	tell current window
-		create tab with default profile
 		tell current session
-			set name to "%s"
-			write text "cd '%s' && opencode --prompt \"$(cat '%s')\" && rm -f '%s'"
+			set newSession to (split vertically with default profile)
+			tell newSession
+				set name to "%s"
+				write text "echo -ne '\\033]0;%s\\007' && cd '%s' && opencode --prompt \"$(cat '%s')\" && rm -f '%s'"
+			end tell
 		end tell
 	end tell
 end tell
-`, workerID, workDir, promptFilePath, promptFilePath)
+`, workerID, workDir, promptFilePath, promptFilePath, workerID, workerID, workDir, promptFilePath, promptFilePath)
 }
 
 func (h *OpenCodeHandler) BuildTerminateScript(workerID string) string {
@@ -112,13 +135,13 @@ end tell
 }
 
 func (h *OpenCodeHandler) buildITermTerminateScript(workerID string) string {
-	// iTerm2: 세션 이름으로 특정 세션 찾아 종료
+	// iTerm2: profile name으로 Worker ID가 설정된 세션 찾아 종료
 	return fmt.Sprintf(`
 tell application "iTerm"
 	repeat with w in windows
 		repeat with t in tabs of w
 			repeat with s in sessions of t
-				if name of s is "%s" then
+				if profile name of s is "%s" then
 					tell s to close
 					return
 				end if

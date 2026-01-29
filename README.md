@@ -163,8 +163,8 @@ HOOK_SERVER_PORT=8081
 # AI 모델 선택 (claude/opencode/ampcode)
 AI_MODEL_TYPE=opencode
 
-# 터미널 타입 (terminal/warp)
-TERMINAL_TYPE=warp
+# 터미널 타입 (terminal/warp/iterm2)
+TERMINAL_TYPE=iterm2
 
 # 실행 (CLI 옵션)
 ./ai-worker --help     # 도움말
@@ -199,8 +199,16 @@ TERMINAL_TYPE=warp
 AI_MODEL_TYPE=opencode
 
 # 터미널 타입 (기본: terminal)
-TERMINAL_TYPE=warp
+TERMINAL_TYPE=iterm2
 ```
+
+### 지원 터미널
+
+| 터미널 | 설정값 | 세션 관리 | 특징 |
+|--------|--------|-----------|------|
+| **Terminal.app** | `terminal` | custom title | macOS 기본, 안정적 |
+| **Warp** | `warp` | 미지원 | 빠른 입력, 창 타겟팅 불가 |
+| **iTerm2** | `iterm2` | profile name + split | ⭐ 권장, 동적 분할, 세션 재사용 |
 
 ### OpenCode 설정 (oh-my-opencode)
 
@@ -435,8 +443,10 @@ SlickWebhook/
 | `AI_STATUS_WORKING` | | 작업중 상태명 (기본: `작업중`) |
 | `AI_STATUS_COMPLETED` | | 완료 상태명 (기본: `개발완료`) |
 | `AI_COMPLETED_LIST_ID` | | 완료된 태스크 이동 리스트 ID |
-| **`AI_MODEL_TYPE`** | | **AI 모델 선택 (`claude`/`opencode`/`ampcode`, 기본: `claude`)** |
-| **`TERMINAL_TYPE`** | | **터미널 타입 (`terminal`/`warp`, 기본: `terminal`)** |
+| **`AI_MODEL_TYPE`** | | **전역 AI 모델 (`claude`/`opencode`/`ampcode`, 기본: `claude`)** |
+| **`TERMINAL_TYPE`** | | **전역 터미널 타입 (`terminal`/`warp`/`iterm2`, 기본: `terminal`)** |
+| `AI_XX_TERMINAL_TYPE` | | Worker별 터미널 타입 (개별 설정, 없으면 전역 사용) |
+| `AI_XX_AI_MODEL_TYPE` | | Worker별 AI 모델 (개별 설정, 없으면 전역 사용) |
 
 ---
 

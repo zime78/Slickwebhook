@@ -360,6 +360,36 @@ curl -X POST "https://api.clickup.com/api/v2/team/{TEAM_ID}/webhook" \
 ./scripts/logs.sh aiworker
 ```
 
+### 터미널별 특징
+
+| 터미널 | 세션 식별 | 창 관리 | 권장 용도 |
+|--------|----------|---------|----------|
+| **Terminal.app** | custom title | 개별 창 | 단일 Worker |
+| **Warp** | 미지원 | 수동 | 빠른 테스트 |
+| **iTerm2** | profile name | 동적 분할 | ⭐ 다중 Worker |
+
+#### iTerm2 동적 세션 관리
+
+iTerm2 사용 시 세션이 동적으로 생성/재사용됩니다:
+
+1. **이슈 도착** → profile name으로 기존 세션 검색
+2. **세션 있음** → 기존 세션에서 명령 실행 (재사용)
+3. **세션 없음** → `split vertically`로 새 세션 생성
+
+```applescript
+-- 세션 검색 (profile name 기반)
+if profile name of s is "AI_01" then
+    tell s to write text "..."
+end if
+
+-- 새 세션 생성 (없을 때만)
+set newSession to (split vertically with default profile)
+tell newSession
+    set name to "AI_01"  -- profile name 설정
+    write text "echo -ne '\\033]0;AI_01\\007' && ..."  -- 타이틀 표시
+end tell
+```
+
 ### 7. 주의사항
 
 - **macOS 전용**: AppleScript로 터미널 제어 (Linux/Windows 미지원)
