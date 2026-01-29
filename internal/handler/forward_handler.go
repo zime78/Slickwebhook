@@ -132,6 +132,12 @@ func (h *ForwardHandler) Handle(event *domain.Event) {
 			if detail, err := h.jiraClient.GetIssueDetail(detailCtx, issueKey); err == nil {
 				h.logger.Printf("[FORWARD] ✅ Jira 이슈 상세 조회 성공\n")
 
+				// [재현 스탭] 필수 체크 - 없으면 전송 제외
+				if !h.hasReproductionSteps(detail.Description) {
+					h.logger.Printf("[FORWARD] ⏭️ [재현 스탭] 없음, 전송 제외: %s\n", issueKey)
+					return
+				}
+
 				// 이미지/동영상 첨부파일 필터링
 				imageAttachments = jira.FilterMediaAttachments(detail.Attachments)
 				h.logger.Printf("[FORWARD] 📎 첨부 미디어: %d개\n", len(imageAttachments))
@@ -226,6 +232,24 @@ func (h *ChainHandler) Handle(event *domain.Event) {
 	for _, handler := range h.handlers {
 		handler.Handle(event)
 	}
+}
+
+// hasReproductionSteps는 Jira 이슈 본문에 [재현 스탭]이 있는지 확인합니다.
+func (h *ForwardHandler) hasReproductionSteps(description string) bool {
+	// 다양한 표기 지원 (스탭/스텝)
+	patterns := []string{
+		"[재현 스탭]",
+		"[재현 스텝]",
+		"[재현스탭]",
+		"[재현스텝]",
+	}
+
+	for _, pattern := range patterns {
+		if strings.Contains(description, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // isFilteredEmail은 필터링 대상 Jira 알림 이메일인지 확인합니다.
