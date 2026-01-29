@@ -7,8 +7,20 @@
 SLACK_BINARY=slack-monitor
 EMAIL_BINARY=email-monitor
 AI_WORKER_BINARY=ai-worker
-VERSION?=1.0.0
 BUILD_DIR=build
+
+# Git 기반 자동 버전 생성
+# 태그가 있으면: v1.5.0 또는 v1.5.0-3-g1234567 (태그 이후 3커밋)
+# 태그 없으면: 0.0.0-커밋수-g커밋해시
+GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_TIME := $(shell date '+%Y-%m-%d %H:%M:%S')
+
+# ldflags로 버전 정보 주입
+LDFLAGS := -s -w \
+	-X 'github.com/zime/slickwebhook/internal/cli.version=$(GIT_VERSION)' \
+	-X 'github.com/zime/slickwebhook/internal/cli.gitCommit=$(GIT_COMMIT)' \
+	-X 'github.com/zime/slickwebhook/internal/cli.buildTime=$(BUILD_TIME)'
 
 # 기본 타겟
 all: test build-slack
@@ -20,7 +32,7 @@ all: test build-slack
 # Slack Monitor - 현재 플랫폼 빌드
 build-slack:
 	@echo "🔨 Slack Monitor 빌드 중..."
-	go build -ldflags="-s -w" -o $(SLACK_BINARY) ./cmd/slack-monitor
+	go build -ldflags="$(LDFLAGS)" -o $(SLACK_BINARY) ./cmd/slack-monitor
 
 # Slack Monitor 실행 (환경변수 필요)
 run-slack:
@@ -34,7 +46,7 @@ run-slack:
 # Email Monitor - 현재 플랫폼 빌드
 build-email:
 	@echo "📧 Email Monitor 빌드 중..."
-	go build -ldflags="-s -w" -o $(EMAIL_BINARY) ./cmd/email-monitor
+	go build -ldflags="$(LDFLAGS)" -o $(EMAIL_BINARY) ./cmd/email-monitor
 
 # Email Monitor 실행 (환경변수 필요)
 run-email:
@@ -48,7 +60,7 @@ run-email:
 # AI Worker - 현재 플랫폼 빌드
 build-ai-worker:
 	@echo "🤖 AI Worker 빌드 중..."
-	go build -ldflags="-s -w" -o $(AI_WORKER_BINARY) ./cmd/ai-worker
+	go build -ldflags="$(LDFLAGS)" -o $(AI_WORKER_BINARY) ./cmd/ai-worker
 
 # AI Worker 실행 (환경변수 필요)
 run-ai-worker:
@@ -97,23 +109,23 @@ build-slack-all: build-slack-darwin build-slack-linux build-slack-windows
 build-slack-darwin:
 	@echo "🍎 Slack Monitor macOS 빌드 중..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(SLACK_BINARY)-macos-apple-silicon ./cmd/slack-monitor
-	GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(SLACK_BINARY)-macos-intel ./cmd/slack-monitor
+	GOOS=darwin GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(SLACK_BINARY)-macos-apple-silicon ./cmd/slack-monitor
+	GOOS=darwin GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(SLACK_BINARY)-macos-intel ./cmd/slack-monitor
 	@echo "  ✅ macos-apple-silicon, macos-intel"
 
 # Linux (x86 + ARM)
 build-slack-linux:
 	@echo "🐧 Slack Monitor Linux 빌드 중..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(SLACK_BINARY)-linux-x86 ./cmd/slack-monitor
-	GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(SLACK_BINARY)-linux-arm ./cmd/slack-monitor
+	GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(SLACK_BINARY)-linux-x86 ./cmd/slack-monitor
+	GOOS=linux GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(SLACK_BINARY)-linux-arm ./cmd/slack-monitor
 	@echo "  ✅ linux-x86, linux-arm"
 
 # Windows (x86)
 build-slack-windows:
 	@echo "🪟 Slack Monitor Windows 빌드 중..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(SLACK_BINARY)-windows-x86.exe ./cmd/slack-monitor
+	GOOS=windows GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(SLACK_BINARY)-windows-x86.exe ./cmd/slack-monitor
 	@echo "  ✅ windows-x86"
 
 # ============================================
@@ -128,23 +140,23 @@ build-email-all: build-email-darwin build-email-linux build-email-windows
 build-email-darwin:
 	@echo "📧 Email Monitor macOS 빌드 중..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(EMAIL_BINARY)-macos-apple-silicon ./cmd/email-monitor
-	GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(EMAIL_BINARY)-macos-intel ./cmd/email-monitor
+	GOOS=darwin GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(EMAIL_BINARY)-macos-apple-silicon ./cmd/email-monitor
+	GOOS=darwin GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(EMAIL_BINARY)-macos-intel ./cmd/email-monitor
 	@echo "  ✅ macos-apple-silicon, macos-intel"
 
 # Linux (x86 + ARM)
 build-email-linux:
 	@echo "📧 Email Monitor Linux 빌드 중..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(EMAIL_BINARY)-linux-x86 ./cmd/email-monitor
-	GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(EMAIL_BINARY)-linux-arm ./cmd/email-monitor
+	GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(EMAIL_BINARY)-linux-x86 ./cmd/email-monitor
+	GOOS=linux GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(EMAIL_BINARY)-linux-arm ./cmd/email-monitor
 	@echo "  ✅ linux-x86, linux-arm"
 
 # Windows (x86)
 build-email-windows:
 	@echo "📧 Email Monitor Windows 빌드 중..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(EMAIL_BINARY)-windows-x86.exe ./cmd/email-monitor
+	GOOS=windows GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(EMAIL_BINARY)-windows-x86.exe ./cmd/email-monitor
 	@echo "  ✅ windows-x86"
 
 # ============================================
@@ -159,23 +171,23 @@ build-ai-worker-all: build-ai-worker-darwin build-ai-worker-linux build-ai-worke
 build-ai-worker-darwin:
 	@echo "🤖 AI Worker macOS 빌드 중..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-macos-apple-silicon ./cmd/ai-worker
-	GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-macos-intel ./cmd/ai-worker
+	GOOS=darwin GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-macos-apple-silicon ./cmd/ai-worker
+	GOOS=darwin GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-macos-intel ./cmd/ai-worker
 	@echo "  ✅ macos-apple-silicon, macos-intel"
 
 # Linux (x86 + ARM)
 build-ai-worker-linux:
 	@echo "🤖 AI Worker Linux 빌드 중..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-linux-x86 ./cmd/ai-worker
-	GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-linux-arm ./cmd/ai-worker
+	GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-linux-x86 ./cmd/ai-worker
+	GOOS=linux GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-linux-arm ./cmd/ai-worker
 	@echo "  ✅ linux-x86, linux-arm"
 
 # Windows (x86)
 build-ai-worker-windows:
 	@echo "🤖 AI Worker Windows 빌드 중..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-windows-x86.exe ./cmd/ai-worker
+	GOOS=windows GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(AI_WORKER_BINARY)-windows-x86.exe ./cmd/ai-worker
 	@echo "  ✅ windows-x86"
 
 # ============================================

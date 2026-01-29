@@ -10,6 +10,13 @@ import (
 	"syscall"
 )
 
+// 빌드 시 ldflags로 주입되는 변수
+var (
+	version   = "dev"     // 버전 (예: 1.5.0, 1.5.0-3-g1234567)
+	buildTime = "unknown" // 빌드 시간
+	gitCommit = "unknown" // Git 커밋 해시
+)
+
 // AppInfo는 애플리케이션 정보입니다.
 type AppInfo struct {
 	Name        string
@@ -75,6 +82,12 @@ func printHelp(info AppInfo) {
 
 func printVersion(info AppInfo) {
 	fmt.Printf("%s v%s\n", info.Name, info.Version)
+	if gitCommit != "unknown" && gitCommit != "" {
+		fmt.Printf("  Commit: %s\n", gitCommit)
+	}
+	if buildTime != "unknown" && buildTime != "" {
+		fmt.Printf("  Build:  %s\n", buildTime)
+	}
 }
 
 // startBackground는 백그라운드로 프로세스를 시작합니다.
@@ -212,15 +225,21 @@ func isRunning(pidFile string) bool {
 	return err == nil
 }
 
-// GetVersion은 VERSION 파일에서 버전을 읽습니다.
+// GetVersion은 빌드 시 주입된 버전을 반환합니다.
+// ldflags로 주입되지 않은 경우 VERSION 파일 또는 기본값을 사용합니다.
 func GetVersion() string {
+	// ldflags로 주입된 버전 우선 사용
+	if version != "dev" && version != "" {
+		return version
+	}
+
+	// VERSION 파일에서 읽기 (폴백)
 	exePath, err := os.Executable()
 	if err != nil {
-		return "unknown"
+		return "dev"
 	}
 	exeDir := filepath.Dir(exePath)
 
-	// VERSION 파일 경로들
 	paths := []string{
 		filepath.Join(exeDir, "VERSION"),
 		"VERSION",
@@ -233,5 +252,10 @@ func GetVersion() string {
 		}
 	}
 
-	return "1.5.0" // 기본값
+	return "dev"
+}
+
+// GetBuildInfo는 빌드 정보를 반환합니다.
+func GetBuildInfo() (ver, commit, build string) {
+	return version, gitCommit, buildTime
 }
