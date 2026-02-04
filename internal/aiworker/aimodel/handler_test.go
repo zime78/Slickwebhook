@@ -258,9 +258,9 @@ func TestClaudeHandler_iTerm2(t *testing.T) {
 			t.Error("스크립트에 iTerm이 포함되어야 함")
 		}
 
-		// profile name으로 찾는 로직이 포함되어야 함 (완전 일치 검색)
-		if !strings.Contains(script, "profile name of s is") {
-			t.Error("스크립트에 profile name 검색 로직이 포함되어야 함")
+		// session name으로 찾는 로직이 포함되어야 함 (완전 일치 검색)
+		if !strings.Contains(script, "name of s is") {
+			t.Error("스크립트에 session name 검색 로직이 포함되어야 함")
 		}
 	})
 }
