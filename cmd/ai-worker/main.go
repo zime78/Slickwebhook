@@ -155,7 +155,36 @@ func main() {
 			return
 		}
 
-		// transcript 파일에서 Stop 원인 분석 (plan 모드가 아닌 경우)
+		// acceptEdits 모드 (Plan 승인 후 실행 중): 자동 완료 처리
+		// transcript 기록 타이밍 이슈로 analyzeStopReason이 unknown 반환할 수 있어
+		// acceptEdits 모드에서는 Stop 발생 시 작업 완료로 간주
+		if payload.PermissionMode == "acceptEdits" {
+			logger.Printf("[AI Worker] acceptEdits 모드 Stop 감지 - 자동 완료 처리")
+
+			taskID := worker.GetCurrentTaskID()
+			taskName := worker.GetCurrentTaskName()
+			jiraID := worker.GetCurrentJiraID()
+
+			if err := manager.OnHookReceived(ctx, payload.Cwd); err != nil {
+				logger.Printf("[AI Worker] 완료 처리 실패: %v", err)
+			} else {
+				logger.Printf("[AI Worker] 완료 처리 성공 (acceptEdits 자동 완료)")
+				// Slack 알림 전송
+				sendSlackNotificationWithInfo(ctx, slackClient, workerConfig.SlackChannel, workerID, taskID, taskName, jiraID)
+
+				// 0.5초 후 Claude 프로세스 종료
+				go func() {
+					time.Sleep(500 * time.Millisecond)
+					logger.Printf("[AI Worker] Claude 프로세스 종료 중 (Worker: %s)", workerID)
+					if err := worker.TerminateClaude(); err != nil {
+						logger.Printf("[AI Worker] Claude 종료 실패: %v", err)
+					}
+				}()
+			}
+			return
+		}
+
+		// 그 외 모드: transcript 파일에서 Stop 원인 분석
 		stopReason := analyzeStopReason(payload.TranscriptPath, logger)
 		logger.Printf("[AI Worker] Stop 원인 분석: %s", stopReason)
 

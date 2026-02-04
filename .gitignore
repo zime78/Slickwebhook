@@ -26,3 +26,6 @@ jira_issues.db
 bin/
 logs/
 config.aiworker.ini
+.omc/
+docs/.bkit-memory.json
+docs/.pdca-status.json

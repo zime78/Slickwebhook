@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"time"
 )
 
 // Manager는 여러 Worker를 관리합니다.
@@ -125,6 +126,9 @@ func (m *Manager) runWorker(ctx context.Context, worker *Worker) {
 		m.logger.Printf("[%s] Worker 시작 (리스트: %s)", config.ID, config.ListID)
 	}
 
+	// 폴링 간격 (CPU 100% 방지)
+	pollInterval := 10 * time.Second
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -140,6 +144,8 @@ func (m *Manager) runWorker(ctx context.Context, worker *Worker) {
 					if m.logger != nil {
 						m.logger.Printf("[%s] 태스크 조회 실패: %v", config.ID, err)
 					}
+					// 에러 시에도 대기 후 재시도
+					time.Sleep(pollInterval)
 					continue
 				}
 
@@ -157,6 +163,9 @@ func (m *Manager) runWorker(ctx context.Context, worker *Worker) {
 					}
 				}
 			}
+
+			// 다음 폴링까지 대기 (CPU 100% busy-wait 방지)
+			time.Sleep(pollInterval)
 		}
 	}
 }
