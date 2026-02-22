@@ -575,8 +575,8 @@ func analyzeStopReason(transcriptPath string, logger *log.Logger) StopReason {
 		}
 	}
 
-	// API 에러 확인
-	errorKeywords := []string{"error", "failed", "exception", "api error"}
+	// API 에러 확인 (너무 포괄적인 error, failed, exception 제외)
+	errorKeywords := []string{"api error", "anthropic api", "failed to fetch", "bad gateway", "internal server error", "claude api error", "timeout"}
 	for _, keyword := range errorKeywords {
 		if strings.Contains(content, keyword) {
 			return StopReasonAPIError
