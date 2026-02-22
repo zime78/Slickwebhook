@@ -15,6 +15,7 @@ import (
 
 	"github.com/zime/slickwebhook/internal/aiworker"
 	"github.com/zime/slickwebhook/internal/claudehook"
+	"github.com/zime/slickwebhook/internal/cli"
 	"github.com/zime/slickwebhook/internal/clickup"
 	"github.com/zime/slickwebhook/internal/config"
 	"github.com/zime/slickwebhook/internal/hookserver"
@@ -25,6 +26,16 @@ import (
 )
 
 func main() {
+	// CLI 인자 파싱
+	if cli.ParseArgs(cli.AppInfo{
+		Name:        "AI-Worker",
+		Description: "AI 작업 자동화 워커 (Claude Code, ClickUp 연동)",
+		Version:     cli.GetVersion(),
+		ConfigFile:  "config.aiworker.ini",
+	}) {
+		return
+	}
+
 	// 로거 설정 (LOG_TO_FILE 환경변수로 파일 로깅 활성화)
 	var logWriter io.Writer = os.Stdout
 
