@@ -157,9 +157,9 @@ func (i *DefaultInvoker) AddTDDSuffix(prompt string) string {
 	result := prompt
 
 	// TDD 문구 추가
-	if !strings.Contains(prompt, "TDD") {
-		result += "\n\nTDD 방식으로 개발 진행."
-	}
+	// if !strings.Contains(prompt, "TDD") {
+	// result += "\n\nTDD 방식으로 개발 진행."
+	// }
 
 	// 작업 완료 알림 지시 추가
 	result += i.GetTaskCompleteInstruction()
