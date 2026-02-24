@@ -21,7 +21,7 @@ type Client interface {
 	UploadAttachment(ctx context.Context, taskID string, filename string, data []byte) error
 	GetTask(ctx context.Context, taskID string) (*Task, error)
 	GetTasks(ctx context.Context, listID string, opts *GetTasksOptions) ([]*Task, error)
-	UpdateTaskStatus(ctx context.Context, taskID string, status string) error
+	UpdateTask(ctx context.Context, taskID string, req UpdateTaskRequest) error
 	MoveTaskToList(ctx context.Context, taskID string, listID string) error
 }
 
@@ -434,29 +434,33 @@ func (c *ClickUpClient) GetTasks(ctx context.Context, listID string, opts *GetTa
 	return tasksResp.Tasks, nil
 }
 
-// UpdateTaskStatus는 태스크의 상태를 변경합니다.
+// UpdateTaskRequest는 태스크 업데이트 요청 페이로드입니다.
+// ClickUp API는 날짜를 Unix milliseconds (타임스탬프 * 1000)로 받습니다.
+type UpdateTaskRequest struct {
+	Status    string `json:"status,omitempty"`
+	StartDate int64  `json:"start_date,omitempty"` // Unix milliseconds
+	DueDate   int64  `json:"due_date,omitempty"`   // Unix milliseconds
+}
+
+// UpdateTask는 태스크의 상태와 날짜 정보를 변경합니다.
 // API: PUT /api/v2/task/{task_id}
-func (c *ClickUpClient) UpdateTaskStatus(ctx context.Context, taskID string, status string) error {
+func (c *ClickUpClient) UpdateTask(ctx context.Context, taskID string, req UpdateTaskRequest) error {
 	reqURL := fmt.Sprintf("%s/task/%s", c.baseURL, taskID)
 
-	payload := map[string]interface{}{
-		"status": status,
-	}
-
-	payloadBytes, err := json.Marshal(payload)
+	payloadBytes, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("페이로드 직렬화 실패: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, bytes.NewReader(payloadBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, "PUT", reqURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("요청 생성 실패: %w", err)
 	}
 
-	req.Header.Set("Authorization", c.config.APIToken)
-	req.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", c.config.APIToken)
+	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("API 호출 실패: %w", err)
 	}
@@ -477,8 +481,8 @@ func (c *ClickUpClient) MoveTaskToList(ctx context.Context, taskID string, listI
 		return fmt.Errorf("리스트 이동 실패: TeamID가 설정되지 않음")
 	}
 
-	// v3 API 엔드포인트 사용
-	reqURL := fmt.Sprintf("https://api.clickup.com/api/v3/workspaces/%s/tasks/%s/home_list/%s", c.config.TeamID, taskID, listID)
+	// v3 API 엔드포인트 사용. 테스트 환경 지원을 위해 baseURL 호스트 활용
+	reqURL := fmt.Sprintf("%s/workspaces/%s/tasks/%s/home_list/%s", strings.ReplaceAll(c.baseURL, "/api/v2", "/api/v3"), c.config.TeamID, taskID, listID)
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, nil)
 	if err != nil {

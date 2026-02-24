@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sync"
+	"time"
 
 	"github.com/zime/slickwebhook/internal/clickup"
 	"github.com/zime/slickwebhook/internal/issueformatter"
@@ -14,7 +15,7 @@ import (
 type ClickUpClientInterface interface {
 	GetTask(ctx context.Context, taskID string) (*clickup.Task, error)
 	GetTasks(ctx context.Context, listID string, opts *clickup.GetTasksOptions) ([]*clickup.Task, error)
-	UpdateTaskStatus(ctx context.Context, taskID, status string) error
+	UpdateTask(ctx context.Context, taskID string, req clickup.UpdateTaskRequest) error
 	MoveTaskToList(ctx context.Context, taskID, listID string) error
 }
 
@@ -30,13 +31,14 @@ type Worker struct {
 	terminalType    TerminalType // 사용할 터미널 종류
 
 	// 상태 관리
-	mu              sync.Mutex
-	processing      bool
-	currentTaskID   string
-	currentTaskName string // Slack 알림용 태스크 이름
-	currentJiraID   string // Slack 알림용 Jira 이슈 ID
-	originalStatus  string // 취소 시 롤백을 위한 원래 상태
-	srcPath         string // 현재 작업 디렉토리 (터미널 종료용)
+	mu               sync.Mutex
+	processing       bool
+	currentTaskID    string
+	currentTaskName  string // Slack 알림용 태스크 이름
+	currentJiraID    string // Slack 알림용 Jira 이슈 ID
+	currentSessionID string // 현재 진행중인 세션 ID (Zombie 웹훅 필터링)
+	originalStatus   string // 취소 시 롤백을 위한 원래 상태
+	srcPath          string // 현재 작업 디렉토리 (터미널 종료용)
 }
 
 // NewWorker는 새 Worker를 생성합니다.
@@ -87,8 +89,12 @@ func (w *Worker) ProcessTask(ctx context.Context, taskID string) error {
 	// 처리 상태 설정 (태스크 ID, 이름, Jira ID, 원래 상태)
 	w.SetProcessing(taskID, task.Name, jiraID, originalStatus)
 
-	// 상태를 "작업중"으로 변경
-	if err := w.clickupClient.UpdateTaskStatus(ctx, taskID, w.statusWorking); err != nil {
+	// 상태를 "작업중"으로 변경하고 시작 시간 설정
+	updateReq := clickup.UpdateTaskRequest{
+		Status:    w.statusWorking,
+		StartDate: time.Now().UnixMilli(),
+	}
+	if err := w.clickupClient.UpdateTask(ctx, taskID, updateReq); err != nil {
 		w.ClearProcessing()
 		return fmt.Errorf("상태 변경 실패: %w", err)
 	}
@@ -129,8 +135,12 @@ func (w *Worker) CompleteTask(ctx context.Context) error {
 		return fmt.Errorf("처리 중인 태스크가 없음")
 	}
 
-	// 상태를 "개발완료"로 변경
-	if err := w.clickupClient.UpdateTaskStatus(ctx, taskID, w.statusCompleted); err != nil {
+	// 상태를 "개발완료"로 변경하고 완료 시간 설정
+	updateReq := clickup.UpdateTaskRequest{
+		Status:  w.statusCompleted,
+		DueDate: time.Now().UnixMilli(),
+	}
+	if err := w.clickupClient.UpdateTask(ctx, taskID, updateReq); err != nil {
 		return fmt.Errorf("완료 상태 변경 실패: %w", err)
 	}
 
@@ -177,6 +187,7 @@ func (w *Worker) ClearProcessing() {
 	w.currentTaskID = ""
 	w.currentTaskName = ""
 	w.currentJiraID = ""
+	w.currentSessionID = ""
 	w.originalStatus = ""
 }
 
@@ -196,8 +207,11 @@ func (w *Worker) RollbackStatus(ctx context.Context) error {
 		return nil // 원래 상태 미저장
 	}
 
-	// 원래 상태로 변경
-	if err := w.clickupClient.UpdateTaskStatus(ctx, taskID, originalStatus); err != nil {
+	// 원래 상태로 변경 (날짜 갱신 없이 상태만 원복)
+	updateReq := clickup.UpdateTaskRequest{
+		Status: originalStatus,
+	}
+	if err := w.clickupClient.UpdateTask(ctx, taskID, updateReq); err != nil {
 		w.ClearProcessing()
 		return fmt.Errorf("상태 롤백 실패: %w", err)
 	}
@@ -225,6 +239,20 @@ func (w *Worker) GetCurrentTaskName() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.currentTaskName
+}
+
+// GetCurrentSessionID는 현재 처리 중인 세션 ID를 반환합니다.
+func (w *Worker) GetCurrentSessionID() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.currentSessionID
+}
+
+// SetCurrentSessionID는 현재 처리 중인 세션 ID를 설정합니다.
+func (w *Worker) SetCurrentSessionID(sessionID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.currentSessionID = sessionID
 }
 
 // GetConfig는 Worker 설정을 반환합니다.

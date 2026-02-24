@@ -45,6 +45,10 @@ func (m *MockClickUpClient) GetTasks(ctx context.Context, listID string, opts *c
 	return nil, nil // Mock: 항상 nil 반환
 }
 
+func (m *MockClickUpClient) UpdateTask(ctx context.Context, taskID string, req clickup.UpdateTaskRequest) error {
+	return nil // Mock: 항상 성공
+}
+
 func (m *MockClickUpClient) UpdateTaskStatus(ctx context.Context, taskID string, status string) error {
 	return nil // Mock: 항상 성공
 }

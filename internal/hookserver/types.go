@@ -2,12 +2,13 @@ package hookserver
 
 // StopHookPayload는 Claude Code Stop Hook 페이로드입니다.
 type StopHookPayload struct {
-	Cwd            string `json:"cwd"`              // 작업 디렉토리
-	SessionID      string `json:"session_id"`       // 세션 ID (있는 경우)
-	TranscriptPath string `json:"transcript_path"`  // 트랜스크립트 경로 (있는 경우)
-	ExitCode       int    `json:"exit_code"`        // 종료 코드
-	PermissionMode string `json:"permission_mode"`  // 권한 모드 (예: "plan", "default")
-	StopHookActive bool   `json:"stop_hook_active"` // Stop Hook 활성 여부
+	Cwd                  string `json:"cwd"`                    // 작업 디렉토리
+	SessionID            string `json:"session_id"`             // 세션 ID (있는 경우)
+	TranscriptPath       string `json:"transcript_path"`        // 트랜스크립트 경로 (있는 경우)
+	ExitCode             int    `json:"exit_code"`              // 종료 코드
+	PermissionMode       string `json:"permission_mode"`        // 권한 모드 (예: "plan", "default")
+	StopHookActive       bool   `json:"stop_hook_active"`       // Stop Hook 활성 여부
+	LastAssistantMessage string `json:"last_assistant_message"` // 마지막 AI 메시지
 }
 
 // SessionEndPayload는 Claude Code SessionEnd Hook 페이로드입니다.

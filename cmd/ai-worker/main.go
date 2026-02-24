@@ -129,7 +129,18 @@ func main() {
 			return
 		}
 
+		// 현재 세션 ID 확인 및 필터링
+		if worker.GetCurrentSessionID() == "" {
+			worker.SetCurrentSessionID(payload.SessionID)
+			logger.Printf("[AI Worker] 현재 작업의 세션 ID 설정: %s", payload.SessionID)
+		} else if worker.GetCurrentSessionID() != payload.SessionID {
+			logger.Printf("[AI Worker] Stop Hook 무시: 이전 세션(%s)의 잔류 이벤트 (현재: %s)", payload.SessionID, worker.GetCurrentSessionID())
+			return
+		}
+
 		workerID := worker.GetConfig().ID
+
+		// Plan 완료 상태인지 확인 (hook의 permission_mode로 판단)
 
 		// Plan 모드면 transcript 분석 없이 바로 알림 전송
 		// (Claude Code 2.1.19+ 버그: plan 모드 Stop Hook에서 transcript_path가 비어있음)
@@ -143,8 +154,8 @@ func main() {
 			return
 		}
 
-		// transcript 파일에서 Stop 원인 분석 (plan 모드가 아닌 경우)
-		stopReason := analyzeStopReason(payload.TranscriptPath, logger)
+		// transcript 파일 및 마지막 메시지에서 Stop 원인 분석 (plan 모드가 아닌 경우)
+		stopReason := analyzeStopReason(payload.TranscriptPath, payload.LastAssistantMessage, logger)
 		logger.Printf("[AI Worker] Stop 원인 분석: %s", stopReason)
 
 		switch stopReason {
@@ -156,6 +167,30 @@ func main() {
 				PlanTitle: "계획 수립 완료",
 			}
 			sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, planPayload)
+
+		case StopReasonTaskComplete:
+			logger.Printf("[AI Worker] Stop Hook에서 작업 완료 감지 (자동 완료 처리 진행)")
+			taskID := worker.GetCurrentTaskID()
+			taskName := worker.GetCurrentTaskName()
+			jiraID := worker.GetCurrentJiraID()
+			workerID := worker.GetConfig().ID
+
+			if err := manager.OnHookReceived(ctx, payload.Cwd); err != nil {
+				logger.Printf("[AI Worker] 자동 완료 처리 실패 (Stop Hook): %v", err)
+			} else {
+				logger.Printf("[AI Worker] 자동 완료 처리 성공 (Stop Hook)")
+				// Slack 알림 전송
+				sendSlackNotificationWithInfo(ctx, slackClient, workerConfig.SlackChannel, workerID, taskID, taskName, jiraID)
+
+				// 0.5초 후 Claude 프로세스 종료
+				go func() {
+					time.Sleep(500 * time.Millisecond)
+					logger.Printf("[AI Worker] Claude 프로세스 종료 중 (Worker: %s)", workerID)
+					if err := worker.TerminateClaude(); err != nil {
+						logger.Printf("[AI Worker] Claude 종료 실패: %v", err)
+					}
+				}()
+			}
 
 		case StopReasonRateLimit:
 			// Rate Limit 알림
@@ -184,6 +219,12 @@ func main() {
 			return
 		}
 
+		// 현재 세션 ID와 일치하지 않는 (이전/좀비 탭)의 종료 이벤트는 무시
+		if worker.GetCurrentSessionID() != "" && worker.GetCurrentSessionID() != payload.SessionID {
+			logger.Printf("[AI Worker] SessionEnd 무시: 이전 세션(%s)의 잔류 이벤트 (현재: %s)", payload.SessionID, worker.GetCurrentSessionID())
+			return
+		}
+
 		switch payload.Reason {
 		case hookserver.ReasonPromptInputExit:
 			// 사용자 취소 시 상태 롤백
@@ -197,10 +238,9 @@ func main() {
 				logger.Printf("[AI Worker] 상태 롤백 완료: 태스크=%s, 원래상태=%s", taskID, originalStatus)
 			}
 
-		case hookserver.ReasonOther:
-			// 정상 종료 - 완료 처리는 TaskComplete 콜백에서 수행
-			// (Claude가 명시적으로 curl을 호출했을 때만 완료 처리)
-			logger.Printf("[AI Worker] 세션 정상 종료 (완료 처리는 Claude의 TaskComplete 알림 대기)")
+		default:
+			// ReasonOther, ReasonClear 등은 단순 종료 기호일 수 있으므로(예: 창 닫기, clear) 태스크를 완료처리하지 않음
+			logger.Printf("[AI Worker] 세션 종료 (완료 처리는 명시적 Hook과 분석에 위임됨)")
 		}
 	}
 
@@ -521,11 +561,27 @@ const (
 	StopReasonRateLimit       StopReason = "rate_limit"
 	StopReasonContextExceeded StopReason = "context_exceeded"
 	StopReasonAPIError        StopReason = "api_error"
+	StopReasonTaskComplete    StopReason = "task_complete"
 	StopReasonUnknown         StopReason = "unknown"
 )
 
-// analyzeStopReason은 transcript 파일을 분석하여 Stop 원인을 반환합니다.
-func analyzeStopReason(transcriptPath string, logger *log.Logger) StopReason {
+// analyzeStopReason은 transcript 파일과 마지막 메시지를 분석하여 Stop 원인을 반환합니다.
+func analyzeStopReason(transcriptPath string, lastAssistantMessage string, logger *log.Logger) StopReason {
+	// 마지막 메시지에서 작업 완료 확인
+	if lastAssistantMessage != "" {
+		msgLower := strings.ToLower(lastAssistantMessage)
+		completeKeywords := []string{
+			"작업이 완료", "모든 작업이 완료", "수정이 완료",
+			"task completed", "tasks completed", "작업 완료",
+			"수정 내역 코멘트 등록 완료",
+		}
+		for _, keyword := range completeKeywords {
+			if strings.Contains(msgLower, keyword) {
+				return StopReasonTaskComplete
+			}
+		}
+	}
+
 	if transcriptPath == "" {
 		return StopReasonUnknown
 	}

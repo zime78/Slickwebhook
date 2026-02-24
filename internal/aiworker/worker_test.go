@@ -11,18 +11,15 @@ import (
 
 // MockClickUpClient는 테스트용 ClickUp 클라이언트입니다.
 type MockClickUpClient struct {
-	Tasks           []*clickup.Task
-	StatusUpdates   []StatusUpdate
-	MovedTasks      []MoveTask
-	GetTasksCalled  bool
-	UpdateCalled    bool
-	MoveTaskCalled  bool
-	mu              sync.Mutex
-}
-
-type StatusUpdate struct {
-	TaskID string
-	Status string
+	Tasks               []*clickup.Task
+	GetTasksCalled      bool
+	MovedTasks          []MoveTask
+	updateTaskRequested bool
+	updatedTaskID       string
+	updateTaskReq       clickup.UpdateTaskRequest
+	MoveTaskCalled      bool
+	mu                  sync.Mutex
+	err                 error // For simulating errors in UpdateTask
 }
 
 type MoveTask struct {
@@ -37,12 +34,13 @@ func (m *MockClickUpClient) GetTasks(ctx context.Context, listID string, opts *c
 	return m.Tasks, nil
 }
 
-func (m *MockClickUpClient) UpdateTaskStatus(ctx context.Context, taskID, status string) error {
+func (m *MockClickUpClient) UpdateTask(ctx context.Context, taskID string, req clickup.UpdateTaskRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.UpdateCalled = true
-	m.StatusUpdates = append(m.StatusUpdates, StatusUpdate{TaskID: taskID, Status: status})
-	return nil
+	m.updateTaskRequested = true
+	m.updatedTaskID = taskID
+	m.updateTaskReq = req
+	return m.err
 }
 
 func (m *MockClickUpClient) GetTask(ctx context.Context, taskID string) (*clickup.Task, error) {
@@ -110,14 +108,14 @@ func TestWorker_ProcessTask(t *testing.T) {
 	}
 
 	// 상태가 "작업중"으로 변경되었는지 확인
-	if !mockClient.UpdateCalled {
-		t.Error("UpdateTaskStatus가 호출되어야 함")
+	if !mockClient.updateTaskRequested {
+		t.Error("UpdateTask가 호출되어야 함")
 	}
-	if len(mockClient.StatusUpdates) == 0 {
-		t.Error("상태 업데이트가 있어야 함")
+	if mockClient.updatedTaskID != "task1" {
+		t.Errorf("예상 태스크 ID: task1, 실제: %s", mockClient.updatedTaskID)
 	}
-	if mockClient.StatusUpdates[0].Status != "작업중" {
-		t.Errorf("상태가 '작업중'이어야 함: got %s", mockClient.StatusUpdates[0].Status)
+	if mockClient.updateTaskReq.Status != "작업중" {
+		t.Errorf("예상 상태: 작업중, 실제: %s", mockClient.updateTaskReq.Status)
 	}
 
 	// Invoker가 호출되었는지 확인
@@ -192,10 +190,10 @@ func TestWorker_CompleteTask(t *testing.T) {
 	}
 
 	// 상태가 "개발완료"로 변경되었는지 확인
-	if !mockClient.UpdateCalled {
-		t.Error("UpdateTaskStatus가 호출되어야 함")
+	if !mockClient.updateTaskRequested {
+		t.Error("UpdateTask가 호출되어야 함")
 	}
-	if len(mockClient.StatusUpdates) == 0 || mockClient.StatusUpdates[0].Status != "개발완료" {
+	if mockClient.updateTaskReq.Status != "개발완료" {
 		t.Error("상태가 '개발완료'로 변경되어야 함")
 	}
 
@@ -242,8 +240,8 @@ func TestWorker_CompleteTask_NoListMove(t *testing.T) {
 	}
 
 	// 상태 변경은 되어야 함
-	if !mockClient.UpdateCalled {
-		t.Error("UpdateTaskStatus가 호출되어야 함")
+	if !mockClient.updateTaskRequested {
+		t.Error("UpdateTask가 호출되어야 함")
 	}
 
 	// 리스트 이동은 호출되지 않아야 함

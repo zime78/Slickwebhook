@@ -102,14 +102,14 @@ func (h *ClaudeHandler) GetTaskCompleteInstruction() string {
 	return fmt.Sprintf(`
 
 ---
-## 중요: 작업 완료 알림
+## 중요: 작업 완료 알림 자동화
 
-모든 작업이 완료되면 반드시 아래 명령을 실행하여 Slack으로 완료 알림을 보내세요:
+당신이 모든 요청된 작업을 완료했다고 판단하면, **반드시 CLI/bash 도구를 사용하여** 아래의 명령을 직접 실행하세요. (이 명령은 사용자가 아니라 당신이 직접 실행해야 합니다):
 
 `+"`"+`bash
 curl -s -X POST http://localhost:%d/hook/task-complete -H 'Content-Type: application/json' -d '{"cwd": "'$(pwd)'", "status": "completed"}'
 `+"`"+`
 
-작업이 완료되지 않았거나 에러가 발생한 경우에는 이 명령을 실행하지 마세요.
+작업이 완료되지 않았거나 에러가 발생한 경우에는 이 명령을 실행하지 마세요. 명령이 성공적으로 실행되면 작업을 완전히 종료해도 좋습니다.
 ---`, h.hookServerPort)
 }

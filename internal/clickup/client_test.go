@@ -368,8 +368,8 @@ func TestClickUpClient_GetTasks_Empty(t *testing.T) {
 	}
 }
 
-// TestClickUpClient_UpdateTaskStatus는 태스크 상태 변경을 테스트합니다.
-func TestClickUpClient_UpdateTaskStatus(t *testing.T) {
+// TestClickUpClient_UpdateTask는 태스크 상태 변경을 테스트합니다.
+func TestClickUpClient_UpdateTask(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 요청 검증
 		if r.Method != "PUT" {
@@ -403,16 +403,16 @@ func TestClickUpClient_UpdateTaskStatus(t *testing.T) {
 	config := Config{APIToken: "test-token", ListID: "123456"}
 	client := NewClickUpClient(config)
 	client.baseURL = server.URL
-
-	err := client.UpdateTaskStatus(context.Background(), "task123", "작업중")
+	req := UpdateTaskRequest{Status: "작업중"}
+	err := client.UpdateTask(context.Background(), "task123", req)
 
 	if err != nil {
 		t.Fatalf("상태 변경 실패: %v", err)
 	}
 }
 
-// TestClickUpClient_UpdateTaskStatus_Error는 상태 변경 에러를 테스트합니다.
-func TestClickUpClient_UpdateTaskStatus_Error(t *testing.T) {
+// TestClickUpClient_UpdateTask_Error는 상태 변경 에러를 테스트합니다.
+func TestClickUpClient_UpdateTask_Error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`{"err": "Invalid status"}`))
@@ -422,8 +422,8 @@ func TestClickUpClient_UpdateTaskStatus_Error(t *testing.T) {
 	config := Config{APIToken: "test-token", ListID: "123456"}
 	client := NewClickUpClient(config)
 	client.baseURL = server.URL
-
-	err := client.UpdateTaskStatus(context.Background(), "task123", "잘못된상태")
+	req := UpdateTaskRequest{Status: "잘못된상태"}
+	err := client.UpdateTask(context.Background(), "task123", req)
 
 	if err == nil {
 		t.Error("에러가 발생해야 합니다")
@@ -441,14 +441,12 @@ func TestClickUpClient_MoveTaskToList(t *testing.T) {
 			t.Error("Authorization 헤더가 없음")
 		}
 
-		// 요청 바디 확인
-		var body map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&body)
-		if body["list"] != "901413896178" {
-			t.Errorf("리스트 ID가 올바르지 않음: %v", body["list"])
+		// 요청 경로 확인
+		if r.URL.Path != "/workspaces/team123/tasks/task123/home_list/901413896178" {
+			t.Errorf("요청 경로가 올바르지 않음: %s", r.URL.Path)
 		}
 
-		// 응답 반환
+		// 분리된 응답 반환
 		resp := map[string]interface{}{
 			"id":   "task123",
 			"name": "테스트 태스크",
@@ -462,7 +460,7 @@ func TestClickUpClient_MoveTaskToList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{APIToken: "test-token", ListID: "123456"}
+	config := Config{APIToken: "test-token", ListID: "123456", TeamID: "team123"}
 	client := NewClickUpClient(config)
 	client.baseURL = server.URL
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"time"
 )
 
 // Manager는 여러 Worker를 관리합니다.
@@ -132,7 +133,7 @@ func (m *Manager) runWorker(ctx context.Context, worker *Worker) {
 				m.logger.Printf("[%s] Worker 종료", config.ID)
 			}
 			return
-		default:
+		case <-time.After(10 * time.Second):
 			// 대기 중인 태스크 확인
 			if !worker.IsProcessing() {
 				tasks, err := worker.GetPendingTasks(ctx)
