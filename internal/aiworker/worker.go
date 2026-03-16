@@ -31,14 +31,14 @@ type Worker struct {
 	terminalType    TerminalType // 사용할 터미널 종류
 
 	// 상태 관리
-	mu               sync.Mutex
-	processing       bool
-	currentTaskID    string
-	currentTaskName  string // Slack 알림용 태스크 이름
-	currentJiraID    string // Slack 알림용 Jira 이슈 ID
-	currentSessionID string // 현재 진행중인 세션 ID (Zombie 웹훅 필터링)
-	originalStatus   string // 취소 시 롤백을 위한 원래 상태
-	srcPath          string // 현재 작업 디렉토리 (터미널 종료용)
+	mu              sync.Mutex
+	processing      bool
+	currentTaskID   string
+	currentTaskName string          // Slack 알림용 태스크 이름
+	currentJiraID   string          // Slack 알림용 Jira 이슈 ID
+	activeSessions  map[string]bool // 현재 진행중인 세션 ID 목록 (Zombie 웹훅 필터링, 다중 탭 지원)
+	originalStatus  string          // 취소 시 롤백을 위한 원래 상태
+	srcPath         string          // 현재 작업 디렉토리 (터미널 종료용)
 }
 
 // NewWorker는 새 Worker를 생성합니다.
@@ -56,6 +56,7 @@ func NewWorker(
 		statusCompleted: statusCompleted,
 		completedListID: completedListID,
 		terminalType:    TerminalTypeDefault,
+		activeSessions:  make(map[string]bool),
 	}
 }
 
@@ -187,8 +188,8 @@ func (w *Worker) ClearProcessing() {
 	w.currentTaskID = ""
 	w.currentTaskName = ""
 	w.currentJiraID = ""
-	w.currentSessionID = ""
 	w.originalStatus = ""
+	w.activeSessions = make(map[string]bool)
 }
 
 // RollbackStatus는 취소 시 태스크 상태를 원래 상태로 되돌립니다.
@@ -241,18 +242,39 @@ func (w *Worker) GetCurrentTaskName() string {
 	return w.currentTaskName
 }
 
-// GetCurrentSessionID는 현재 처리 중인 세션 ID를 반환합니다.
-func (w *Worker) GetCurrentSessionID() string {
+// HasActiveSession은 지정된 세션 ID가 활성 세션 목록에 있는지 확인합니다.
+// 세션 목록이 비어 있으면(즉, 아무나 선점 가능한 첫 훅 상태면) 첫 훅도 통과할 수 있도록 별도의 반환값을 줄 수 있지만,
+// 비어있는지 여부는 len(activeSessions) == 0 으로 체크합니다.
+func (w *Worker) HasActiveSession(sessionID string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.currentSessionID
+	return w.activeSessions[sessionID]
 }
 
-// SetCurrentSessionID는 현재 처리 중인 세션 ID를 설정합니다.
-func (w *Worker) SetCurrentSessionID(sessionID string) {
+// GetActiveSessionCount는 현재 활성화된 세션의 개수를 반환합니다.
+func (w *Worker) GetActiveSessionCount() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.currentSessionID = sessionID
+	return len(w.activeSessions)
+}
+
+// AddActiveSession은 세션 ID를 활성 세션 목록에 추가합니다.
+func (w *Worker) AddActiveSession(sessionID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.activeSessions == nil {
+		w.activeSessions = make(map[string]bool)
+	}
+	w.activeSessions[sessionID] = true
+}
+
+// RemoveActiveSession은 활성 세션 목록에서 지정된 세션 ID를 제거합니다.
+func (w *Worker) RemoveActiveSession(sessionID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.activeSessions != nil {
+		delete(w.activeSessions, sessionID)
+	}
 }
 
 // GetConfig는 Worker 설정을 반환합니다.

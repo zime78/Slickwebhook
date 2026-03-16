@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -129,34 +130,38 @@ func main() {
 			return
 		}
 
-		// 현재 세션 ID 확인 및 필터링
-		if worker.GetCurrentSessionID() == "" {
-			worker.SetCurrentSessionID(payload.SessionID)
-			logger.Printf("[AI Worker] 현재 작업의 세션 ID 설정: %s", payload.SessionID)
-		} else if worker.GetCurrentSessionID() != payload.SessionID {
-			logger.Printf("[AI Worker] Stop Hook 무시: 이전 세션(%s)의 잔류 이벤트 (현재: %s)", payload.SessionID, worker.GetCurrentSessionID())
-			return
-		}
-
 		workerID := worker.GetConfig().ID
 
 		// Plan 완료 상태인지 확인 (hook의 permission_mode로 판단)
-
-		// Plan 모드면 transcript 분석 없이 바로 알림 전송
-		// (Claude Code 2.1.19+ 버그: plan 모드 Stop Hook에서 transcript_path가 비어있음)
+		// Plan 모드면 transcript 분석 없이 바로 알림 전송하고 리턴 (Session ID 잠금 불필요)
 		if payload.PermissionMode == "plan" {
 			logger.Printf("[AI Worker] Plan 모드 Stop 감지 - Slack 알림 전송")
 			planPayload := &hookserver.PlanReadyPayload{
 				Cwd:       payload.Cwd,
 				PlanTitle: "계획 수립 완료",
 			}
-			sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, planPayload)
+			sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, planPayload, payload.SessionID)
 			return
 		}
 
 		// transcript 파일 및 마지막 메시지에서 Stop 원인 분석 (plan 모드가 아닌 경우)
 		stopReason := analyzeStopReason(payload.TranscriptPath, payload.LastAssistantMessage, logger)
 		logger.Printf("[AI Worker] Stop 원인 분석: %s", stopReason)
+
+		// 실제 작업 완료 이벤트일 경우에만 현재 세션 ID 필터링/잠금 적용
+		// 이렇게 해야 좀비 탭에서 알 수 없는 원인(unknown 등)으로 발생한 Stop Hook이 세션을 선점하는 것을 방지할 수 있음
+		if stopReason == StopReasonTaskComplete {
+			if worker.GetActiveSessionCount() == 0 {
+				worker.AddActiveSession(payload.SessionID)
+				logger.Printf("[AI Worker] 작업 완료(TaskComplete) 감지 - 첫 세션 ID 등록: %s", payload.SessionID)
+			} else if !worker.HasActiveSession(payload.SessionID) {
+				// 이미 다른 세션들이 진행중이고, 현재 세션은 목록에 없는 경우에도 일단 완료 처리를 허용해야 하는가?
+				// 만약 완전히 다른 프로젝트 창(하지만 경로는 같음)에서 온 것이라면, 완료 처리를 막는게 맞을지 허용하는게 맞을지 모호함.
+				// 하지만 '다중 창 지원'이 핵심이므로, 미등록 SessionID라도 TaskComplete를 외치고 있다면 즉시 등록해주고 완료를 진행시킴.
+				worker.AddActiveSession(payload.SessionID)
+				logger.Printf("[AI Worker] 작업 완료(TaskComplete) 감지 - 다중 세션 추가 등록: %s", payload.SessionID)
+			}
+		}
 
 		switch stopReason {
 		case StopReasonPlanReady:
@@ -166,7 +171,7 @@ func main() {
 				Cwd:       payload.Cwd,
 				PlanTitle: "계획 수립 완료",
 			}
-			sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, planPayload)
+			sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, planPayload, payload.SessionID)
 
 		case StopReasonTaskComplete:
 			logger.Printf("[AI Worker] Stop Hook에서 작업 완료 감지 (자동 완료 처리 진행)")
@@ -180,7 +185,7 @@ func main() {
 			} else {
 				logger.Printf("[AI Worker] 자동 완료 처리 성공 (Stop Hook)")
 				// Slack 알림 전송
-				sendSlackNotificationWithInfo(ctx, slackClient, workerConfig.SlackChannel, workerID, taskID, taskName, jiraID)
+				sendSlackNotificationWithInfo(ctx, slackClient, workerConfig.SlackChannel, workerID, payload.SessionID, taskID, taskName, jiraID)
 
 				// 0.5초 후 Claude 프로세스 종료
 				go func() {
@@ -194,15 +199,15 @@ func main() {
 
 		case StopReasonRateLimit:
 			// Rate Limit 알림
-			sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, "⚠️ Rate Limit", "API 사용량 한도에 도달했습니다. 잠시 후 재시도됩니다.")
+			sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, payload.SessionID, "⚠️ Rate Limit", "API 사용량 한도에 도달했습니다. 잠시 후 재시도됩니다.")
 
 		case StopReasonContextExceeded:
 			// Context 초과 알림
-			sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, "⚠️ Context 초과", "컨텍스트 윈도우 한도를 초과했습니다.")
+			sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, payload.SessionID, "⚠️ Context 초과", "컨텍스트 윈도우 한도를 초과했습니다.")
 
 		case StopReasonAPIError:
 			// API 에러 알림
-			sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, "❌ API 에러", "Claude API 호출 중 에러가 발생했습니다.")
+			sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, payload.SessionID, "❌ API 에러", "Claude API 호출 중 에러가 발생했습니다.")
 
 		case StopReasonUnknown:
 			// 알 수 없는 Stop - 로그만 남김
@@ -219,9 +224,9 @@ func main() {
 			return
 		}
 
-		// 현재 세션 ID와 일치하지 않는 (이전/좀비 탭)의 종료 이벤트는 무시
-		if worker.GetCurrentSessionID() != "" && worker.GetCurrentSessionID() != payload.SessionID {
-			logger.Printf("[AI Worker] SessionEnd 무시: 이전 세션(%s)의 잔류 이벤트 (현재: %s)", payload.SessionID, worker.GetCurrentSessionID())
+		// 현재 활성화된 세션 중 이번에 종료된 세션이 아니라면 무시
+		if worker.GetActiveSessionCount() > 0 && !worker.HasActiveSession(payload.SessionID) {
+			logger.Printf("[AI Worker] SessionEnd 무시: 미등록 또는 이전 세션(%s)의 잔류 이벤트", payload.SessionID)
 			return
 		}
 
@@ -237,16 +242,48 @@ func main() {
 			} else {
 				logger.Printf("[AI Worker] 상태 롤백 완료: 태스크=%s, 원래상태=%s", taskID, originalStatus)
 			}
+			worker.RemoveActiveSession(payload.SessionID) // 세션 목록에서 해당 ID 제거
 
 		default:
 			// ReasonOther, ReasonClear 등은 단순 종료 기호일 수 있으므로(예: 창 닫기, clear) 태스크를 완료처리하지 않음
 			logger.Printf("[AI Worker] 세션 종료 (완료 처리는 명시적 Hook과 분석에 위임됨)")
+			worker.RemoveActiveSession(payload.SessionID) // 종료된 세션 ID 제거
 		}
 	}
 
 	hookServer := hookserver.NewServer(workerConfig.HookServerPort, hookCallback)
 	hookServer.SetLogger(logger)
 	hookServer.SetSessionEndCallback(sessionEndCallback)
+
+	// WorktreeCreate 콜백
+	worktreeCreateCallback := func(payload *hookserver.WorktreeHookPayload) {
+		logger.Printf("[AI Worker] Worktree 생성됨: cwd=%s, worktree=%s", payload.Cwd, payload.Worktree)
+		// 워커 식별
+		worker := manager.GetWorkerBySrcPath(payload.Cwd)
+		workerID := "알 수 없음"
+		if worker != nil {
+			workerID = worker.GetConfig().ID
+		}
+
+		// Slack 알림 (원치 않을 경우 주석 처리)
+		sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, payload.SessionID, "🌳 Worktree 생성됨", fmt.Sprintf("경로: %s", payload.Worktree))
+	}
+	hookServer.SetWorktreeCreateCallback(worktreeCreateCallback)
+
+	// WorktreeRemove 콜백
+	worktreeRemoveCallback := func(payload *hookserver.WorktreeHookPayload) {
+		logger.Printf("[AI Worker] Worktree 삭제됨: cwd=%s, worktree=%s", payload.Cwd, payload.Worktree)
+		// 워커 식별
+		worker := manager.GetWorkerBySrcPath(payload.Cwd)
+		workerID := "알 수 없음"
+		if worker != nil {
+			workerID = worker.GetConfig().ID
+		}
+
+		// Slack 알림 (원치 않을 경우 주석 처리)
+		sendStopEventNotification(ctx, slackClient, workerConfig.SlackChannel, workerID, payload.SessionID, "🗑️ Worktree 삭제됨", fmt.Sprintf("경로: %s", payload.Worktree))
+	}
+	hookServer.SetWorktreeRemoveCallback(worktreeRemoveCallback)
 
 	// Plan Ready 콜백 (Plan 완료 시 Slack 알림)
 	planReadyCallback := func(payload *hookserver.PlanReadyPayload) {
@@ -259,8 +296,8 @@ func main() {
 			return
 		}
 
-		// Slack 알림 전송
-		sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, payload)
+		// Slack 알림 전송 (명시적 Plan Ready의 경우 sessionID 없음)
+		sendPlanReadySlackNotification(ctx, slackClient, workerConfig.SlackChannel, worker, payload, "")
 	}
 	hookServer.SetPlanReadyCallback(planReadyCallback)
 
@@ -284,8 +321,8 @@ func main() {
 			logger.Printf("[AI Worker] 완료 처리 실패: %v", err)
 		} else {
 			logger.Printf("[AI Worker] 완료 처리 성공 (Claude 명시적 완료)")
-			// Slack 알림 전송
-			sendSlackNotificationWithInfo(ctx, slackClient, workerConfig.SlackChannel, workerID, taskID, taskName, jiraID)
+			// Slack 알림 전송 (명시적 완료의 경우 sessionID는 없음)
+			sendSlackNotificationWithInfo(ctx, slackClient, workerConfig.SlackChannel, workerID, "", taskID, taskName, jiraID)
 
 			// 0.5초 후 Claude 프로세스 종료
 			go func() {
@@ -493,13 +530,22 @@ func sendSlackNotification(ctx context.Context, client *slack.SlackClient, chann
 }
 
 // sendSlackNotificationWithInfo는 저장된 태스크 정보로 Slack 알림을 전송합니다.
-func sendSlackNotificationWithInfo(ctx context.Context, client *slack.SlackClient, channelID, workerID, taskID, taskName, jiraID string) {
+func sendSlackNotificationWithInfo(ctx context.Context, client *slack.SlackClient, channelID, workerID, sessionID, taskID, taskName, jiraID string) {
 	if channelID == "" {
 		return
 	}
 
+	displayWorkerID := workerID
+	if sessionID != "" {
+		shortID := sessionID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		displayWorkerID = fmt.Sprintf("%s(%s)", workerID, shortID)
+	}
+
 	message := "✅ AI 작업이 완료되었습니다.\n"
-	message += "Worker: " + workerID + "\n"
+	message += "Worker: " + displayWorkerID + "\n"
 
 	if taskName != "" {
 		message += "제목: " + taskName + "\n"
@@ -518,7 +564,7 @@ func sendSlackNotificationWithInfo(ctx context.Context, client *slack.SlackClien
 }
 
 // sendPlanReadySlackNotification는 Plan 완료 시 Slack에 검토 요청 알림을 전송합니다.
-func sendPlanReadySlackNotification(ctx context.Context, client *slack.SlackClient, channelID string, worker *aiworker.Worker, payload *hookserver.PlanReadyPayload) {
+func sendPlanReadySlackNotification(ctx context.Context, client *slack.SlackClient, channelID string, worker *aiworker.Worker, payload *hookserver.PlanReadyPayload, sessionID string) {
 	if channelID == "" {
 		return
 	}
@@ -528,8 +574,17 @@ func sendPlanReadySlackNotification(ctx context.Context, client *slack.SlackClie
 	taskName := worker.GetCurrentTaskName()
 	jiraID := worker.GetCurrentJiraID()
 
+	displayWorkerID := config.ID
+	if sessionID != "" {
+		shortID := sessionID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		displayWorkerID = fmt.Sprintf("%s(%s)", config.ID, shortID)
+	}
+
 	message := "📋 *계획 수립 완료 - 검토 필요*\n"
-	message += "Worker: " + config.ID + "\n"
+	message += "Worker: " + displayWorkerID + "\n"
 
 	if taskName != "" {
 		message += "제목: " + taskName + "\n"
@@ -643,13 +698,22 @@ func analyzeStopReason(transcriptPath string, lastAssistantMessage string, logge
 }
 
 // sendStopEventNotification은 Stop 이벤트에 대한 Slack 알림을 전송합니다.
-func sendStopEventNotification(ctx context.Context, client *slack.SlackClient, channelID, workerID, eventType, description string) {
+func sendStopEventNotification(ctx context.Context, client *slack.SlackClient, channelID, workerID, sessionID, eventType, description string) {
 	if channelID == "" {
 		return
 	}
 
+	displayWorkerID := workerID
+	if sessionID != "" {
+		shortID := sessionID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		displayWorkerID = fmt.Sprintf("%s(%s)", workerID, shortID)
+	}
+
 	message := eventType + "\n"
-	message += "Worker: " + workerID + "\n"
+	message += "Worker: " + displayWorkerID + "\n"
 	message += description
 
 	client.PostMessage(ctx, channelID, nil, message)

@@ -20,6 +20,15 @@ type SessionEndPayload struct {
 	HookEventName  string `json:"hook_event_name"` // 이벤트 이름 (SessionEnd)
 }
 
+// WorktreeHookPayload는 Claude Code WorktreeCreate/WorktreeRemove Hook 페이로드입니다.
+type WorktreeHookPayload struct {
+	Cwd           string `json:"cwd"`
+	SessionID     string `json:"session_id"`
+	Worktree      string `json:"worktree,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	HookEventName string `json:"hook_event_name,omitempty"`
+}
+
 // 종료 이유 상수
 const (
 	ReasonClear           = "clear"             // /clear 명령으로 세션 삭제
@@ -33,6 +42,12 @@ type HookCallback func(payload *StopHookPayload)
 
 // SessionEndCallback은 SessionEnd Hook 수신 시 호출되는 콜백입니다.
 type SessionEndCallback func(payload *SessionEndPayload)
+
+// WorktreeCreateCallback은 WorktreeCreate Hook 수신 시 호출되는 콜백입니다.
+type WorktreeCreateCallback func(payload *WorktreeHookPayload)
+
+// WorktreeRemoveCallback은 WorktreeRemove Hook 수신 시 호출되는 콜백입니다.
+type WorktreeRemoveCallback func(payload *WorktreeHookPayload)
 
 // PlanReadyPayload는 Claude Code Plan 완료 알림 페이로드입니다.
 // Claude가 프롬프트 지시에 따라 curl로 전송합니다.

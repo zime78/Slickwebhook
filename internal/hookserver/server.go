@@ -15,6 +15,8 @@ type Server struct {
 	port                 int
 	callback             HookCallback
 	sessionEndCallback   SessionEndCallback
+	worktreeCreateCB     WorktreeCreateCallback
+	worktreeRemoveCB     WorktreeRemoveCallback
 	planReadyCallback    PlanReadyCallback
 	taskCompleteCallback TaskCompleteCallback
 	httpServer           *http.Server
@@ -39,6 +41,16 @@ func (s *Server) SetSessionEndCallback(callback SessionEndCallback) {
 	s.sessionEndCallback = callback
 }
 
+// SetWorktreeCreateCallback은 WorktreeCreate 콜백을 설정합니다.
+func (s *Server) SetWorktreeCreateCallback(callback WorktreeCreateCallback) {
+	s.worktreeCreateCB = callback
+}
+
+// SetWorktreeRemoveCallback은 WorktreeRemove 콜백을 설정합니다.
+func (s *Server) SetWorktreeRemoveCallback(callback WorktreeRemoveCallback) {
+	s.worktreeRemoveCB = callback
+}
+
 // SetPlanReadyCallback은 Plan Ready 콜백을 설정합니다.
 func (s *Server) SetPlanReadyCallback(callback PlanReadyCallback) {
 	s.planReadyCallback = callback
@@ -54,6 +66,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/hook/stop", s.handleHook)
 	mux.HandleFunc("/hook/session-end", s.handleSessionEnd)
+	mux.HandleFunc("/hook/worktree-create", s.handleWorktreeCreate)
+	mux.HandleFunc("/hook/worktree-remove", s.handleWorktreeRemove)
 	mux.HandleFunc("/hook/plan-ready", s.handlePlanReady)
 	mux.HandleFunc("/hook/task-complete", s.handleTaskComplete)
 	mux.HandleFunc("/health", s.healthHandler)
@@ -171,6 +185,74 @@ func (s *Server) handleSessionEnd(w http.ResponseWriter, r *http.Request) {
 	// 콜백 호출
 	if s.sessionEndCallback != nil {
 		s.sessionEndCallback(&payload)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// handleWorktreeCreate는 WorktreeCreate Hook 요청을 처리합니다.
+func (s *Server) handleWorktreeCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.logError("WorktreeCreate 페이로드 읽기 실패: %v", err)
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	s.logInfo("WorktreeCreate 원본 데이터: %s", string(body))
+
+	var payload WorktreeHookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		s.logError("WorktreeCreate 페이로드 파싱 실패: %v", err)
+		http.Error(w, "Failed to parse payload", http.StatusBadRequest)
+		return
+	}
+
+	s.logInfo("WorktreeCreate 수신: cwd=%s, worktree=%s", payload.Cwd, payload.Worktree)
+
+	if s.worktreeCreateCB != nil {
+		s.worktreeCreateCB(&payload)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// handleWorktreeRemove는 WorktreeRemove Hook 요청을 처리합니다.
+func (s *Server) handleWorktreeRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.logError("WorktreeRemove 페이로드 읽기 실패: %v", err)
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	s.logInfo("WorktreeRemove 원본 데이터: %s", string(body))
+
+	var payload WorktreeHookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		s.logError("WorktreeRemove 페이로드 파싱 실패: %v", err)
+		http.Error(w, "Failed to parse payload", http.StatusBadRequest)
+		return
+	}
+
+	s.logInfo("WorktreeRemove 수신: cwd=%s, worktree=%s", payload.Cwd, payload.Worktree)
+
+	if s.worktreeRemoveCB != nil {
+		s.worktreeRemoveCB(&payload)
 	}
 
 	w.WriteHeader(http.StatusOK)

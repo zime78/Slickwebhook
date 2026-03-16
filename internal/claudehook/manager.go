@@ -23,6 +23,8 @@ func NewManager(hookServerPort int) *Manager {
 func (m *Manager) GenerateHookConfig() map[string]interface{} {
 	stopCurlCommand := m.GenerateStopCurlCommand()
 	sessionEndCurlCommand := m.GenerateSessionEndCurlCommand()
+	worktreeCreateCurlCommand := m.GenerateWorktreeCreateCurlCommand()
+	worktreeRemoveCurlCommand := m.GenerateWorktreeRemoveCurlCommand()
 
 	return map[string]interface{}{
 		"hooks": map[string]interface{}{
@@ -50,6 +52,30 @@ func (m *Manager) GenerateHookConfig() map[string]interface{} {
 					},
 				},
 			},
+			"WorktreeCreate": []interface{}{
+				map[string]interface{}{
+					"matcher": "",
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": worktreeCreateCurlCommand,
+							"timeout": 5000,
+						},
+					},
+				},
+			},
+			"WorktreeRemove": []interface{}{
+				map[string]interface{}{
+					"matcher": "",
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": worktreeRemoveCurlCommand,
+							"timeout": 5000,
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -68,6 +94,22 @@ func (m *Manager) GenerateStopCurlCommand() string {
 func (m *Manager) GenerateSessionEndCurlCommand() string {
 	return fmt.Sprintf(
 		`curl -s -X POST http://localhost:%d/hook/session-end -H 'Content-Type: application/json' -d @-`,
+		m.hookServerPort,
+	)
+}
+
+// GenerateWorktreeCreateCurlCommand는 WorktreeCreate Hook 서버로 알림을 보내는 curl 명령어를 생성합니다.
+func (m *Manager) GenerateWorktreeCreateCurlCommand() string {
+	return fmt.Sprintf(
+		`curl -s -X POST http://localhost:%d/hook/worktree-create -H 'Content-Type: application/json' -d @-`,
+		m.hookServerPort,
+	)
+}
+
+// GenerateWorktreeRemoveCurlCommand는 WorktreeRemove Hook 서버로 알림을 보내는 curl 명령어를 생성합니다.
+func (m *Manager) GenerateWorktreeRemoveCurlCommand() string {
+	return fmt.Sprintf(
+		`curl -s -X POST http://localhost:%d/hook/worktree-remove -H 'Content-Type: application/json' -d @-`,
 		m.hookServerPort,
 	)
 }
@@ -113,10 +155,13 @@ func (m *Manager) MergeSettings(settingsPath string) error {
 		hooks = make(map[string]interface{})
 	}
 
-	// Stop hook 설정 추가/업데이트
+	// Stop hook 등 설정 추가/업데이트
 	newConfig := m.GenerateHookConfig()
 	newHooks := newConfig["hooks"].(map[string]interface{})
 	hooks["Stop"] = newHooks["Stop"]
+	hooks["SessionEnd"] = newHooks["SessionEnd"]
+	hooks["WorktreeCreate"] = newHooks["WorktreeCreate"]
+	hooks["WorktreeRemove"] = newHooks["WorktreeRemove"]
 
 	existingConfig["hooks"] = hooks
 
