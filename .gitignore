@@ -26,3 +26,9 @@ jira_issues.db
 bin/
 logs/
 config.aiworker.ini
+
+# 로컬 도구 상태/세션
+.bkit/
+.omc/
+ai-worker.pid
+tmp_ai_worker
