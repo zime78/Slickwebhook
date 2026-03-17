@@ -157,7 +157,7 @@ HOOK_SERVER_PORT=8081
 # AI 모델 선택 (claude/opencode/ampcode)
 AI_MODEL_TYPE=opencode
 
-# 터미널 타입 (terminal/warp)
+# 터미널 타입 (terminal/warp/cmux)
 TERMINAL_TYPE=warp
 
 # 실행
@@ -189,7 +189,7 @@ TERMINAL_TYPE=warp
 # AI 모델 선택 (기본: claude)
 AI_MODEL_TYPE=opencode
 
-# 터미널 타입 (기본: terminal)
+# 터미널 타입 (terminal/warp/cmux, 기본: terminal)
 TERMINAL_TYPE=warp
 ```
 
@@ -427,7 +427,7 @@ SlickWebhook/
 | `AI_STATUS_COMPLETED` | | 완료 상태명 (기본: `개발완료`) |
 | `AI_COMPLETED_LIST_ID` | | 완료된 태스크 이동 리스트 ID |
 | **`AI_MODEL_TYPE`** | | **AI 모델 선택 (`claude`/`opencode`/`ampcode`, 기본: `claude`)** |
-| **`TERMINAL_TYPE`** | | **터미널 타입 (`terminal`/`warp`, 기본: `terminal`)** |
+| **`TERMINAL_TYPE`** | | **터미널 타입 (`terminal`/`warp`/`cmux`, 기본: `terminal`)** |
 
 ---
 

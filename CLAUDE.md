@@ -162,7 +162,7 @@ AI_STATUS_COMPLETED=개발완료
 # 완료된 태스크 이동 목표 리스트
 AI_COMPLETED_LIST_ID=901413896178
 
-# 터미널 타입 (terminal 또는 warp, 기본: terminal)
+# 터미널 타입 (terminal, warp, cmux 중 선택, 기본: terminal)
 TERMINAL_TYPE=warp
 
 # AI 모델 타입 (claude, opencode, ampcode, 기본: claude)
